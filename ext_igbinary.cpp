@@ -1,3 +1,7 @@
+/**
+ * WIP
+ */
+
 /* Same as equivalent php version? */
 #define IGBINARY_HHVM_VERSION "1.2.1-dev"
 
@@ -10,8 +14,11 @@ Variant HHVM_FUNCTION(igbinary_serialize, const Variant &var) {
   return false;
 }
 
-Variant HHVM_FUNCTION(igbinary_unserialize, const String &pack) {
-  raise_warning("Not implemented yet");
+Variant HHVM_FUNCTION(igbinary_unserialize, const String &serialized) {
+  if (serialized.size() <= 0) {
+	  return false;
+  }
+  if (igbinary_unserialize((const uint8_t)* serialized.c_str(), serialized.size(),
   return false;
 }
 
