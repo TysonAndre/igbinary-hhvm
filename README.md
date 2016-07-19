@@ -16,13 +16,25 @@ References may take a while to do properly.
 # Installation
 
 ```bash
-$ git clone https://github.com/TysonAndre/igbinary-hhvm --depth=1
+$ git clone https://github.com/TysonAndre/igbinary-hhvm
 $ cd igbinary-hhvm
 $ hphpize && cmake . && make
 $ cp igbinary.so /path/to/your/hhvm/ext/dir
 ```
 
 `hhvm-dev` must be installed for hphpize to work.
+
+# Testing
+
+```bash
+$ make test
+```
+
+To add ini options for a specific test (e.g. 042.php), add 042.php.ini?
+Global test ini options are in [test/config.ini](test/config.ini)
+
+To port test 00x.phpt to HHVM's test framework, split it up into 00x.php, 00x.php.skipif, 00x.php.expect (or 00x.php.expectf).
+If there are any ini settings specific to that test, those go in 00x.php.ini?
 
 # Authors
 
