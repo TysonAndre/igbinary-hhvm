@@ -7,8 +7,11 @@ Native igbinary for HHVM. Not working yet.
 
 # Functionality
 
-Only `igbinary_serialize` and `igbinary_unserialize`are supported.
-References may take a while to do properly
+So far, `igbinary_unserialize(igbinary_serialize(NULL)) === NULL` works. Other data types aren't implemented yet.
+
+Only `igbinary_serialize` and `igbinary_unserialize` are supported.
+External integration, such as with APC, Memcached, Redis, etc. won't work.
+References may take a while to do properly.
 
 # Installation
 
