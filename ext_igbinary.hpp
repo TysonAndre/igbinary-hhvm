@@ -3,6 +3,10 @@
 #ifndef EXT_IGBINARY_H__
 #define EXT_IGBINARY_H__
 
+// Delete these if accidentally added.
+#define TSRMLS_DC
+#define TSRMLS_CC
+
 #include "hphp/runtime/ext/extension.h"
 
 #define IGBINARY_FORMAT_VERSION 0x00000002

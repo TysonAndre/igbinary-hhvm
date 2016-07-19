@@ -13,14 +13,6 @@ using namespace HPHP;
 namespace {
 
 /* {{{ data types */
-/** String/len pair for the igbinary_unserializer_data.
- * @author Oleg Grenrus <oleg.grenrus@dynamoid.com>
- * @see igbinary_unserialize_data.
- */
-struct igbinary_unserialize_string_pair {
-	char *data;		/**< Data. */
-	size_t len;		/**< Data length. */
-};
 
 /** Unserializer data.
  * Uses RAII to ensure it is de-initialized.
@@ -31,9 +23,7 @@ struct igbinary_unserialize_data {
 	const size_t buffer_size;		/**< Buffer size. */
 	size_t buffer_offset;			/**< Current read offset. */
 
-	struct igbinary_unserialize_string_pair *strings; /**< Unserialized strings. */
-	size_t strings_count;			/**< Unserialized string count. */
-	size_t strings_capacity;		/**< Unserialized string array capacity. */
+    std::vector<String> strings;    /**< Unserialized strings. */
 
 	// zval **references;				/**< Unserialized Arrays/Objects. */
 	size_t references_count;		/**< Unserialized array/objects count. */
@@ -44,11 +34,7 @@ struct igbinary_unserialize_data {
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
 };
-igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t buf_size) : buffer(buf), buffer_size(buf_size), buffer_offset(0) {
-	strings_count = 0;
-	strings_capacity = 4;
-	strings = (struct igbinary_unserialize_string_pair *) malloc(sizeof(struct igbinary_unserialize_string_pair) * strings_capacity);
-
+igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t buf_size) : buffer(buf), buffer_size(buf_size), buffer_offset(0), strings(0) {
 	references_count = 0;
 	references_capacity = 4;
 	// FIXME
@@ -56,7 +42,7 @@ igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t 
 }
 
 igbinary_unserialize_data::~igbinary_unserialize_data() {
-	free(strings);
+    // Nothing to do for strings.
 	//free(references);
 }
 
@@ -151,6 +137,136 @@ inline static void igbinary_unserialize_header(struct igbinary_unserialize_data 
 	}
 }
 /* }}} */
+/* {{{ igbinary_unserialize_long */
+/** Unserializes zend_long */
+inline static int igbinary_unserialize_long(struct igbinary_unserialize_data *igsd, enum igbinary_type t) {
+	if (t == igbinary_type_long8p || t == igbinary_type_long8n) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_long: end-of-data");
+		}
+
+		return (t == igbinary_type_long8n ? -1 : 1) * igbinary_unserialize8(igsd);
+	} else if (t == igbinary_type_long16p || t == igbinary_type_long16n) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_long: end-of-data");
+		}
+
+		return (t == igbinary_type_long16n ? -1 : 1) * igbinary_unserialize16(igsd);
+	} else if (t == igbinary_type_long32p || t == igbinary_type_long32n) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_long: end-of-data");
+		}
+
+		/* check for boundaries */
+		return (t == igbinary_type_long32n ? -1 : 1) * igbinary_unserialize32(igsd);
+	} else if (t == igbinary_type_long64p || t == igbinary_type_long64n) {
+		if (igsd->buffer_offset + 8 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_long: end-of-data");
+		}
+
+		/* check for boundaries */
+		uint64_t tmp64 = igbinary_unserialize64(igsd);
+		if (tmp64 > 0x8000000000000000 || (tmp64 == 0x8000000000000000 && t == igbinary_type_long64p)) {
+			throw Exception("igbinary_unserialize_long: too big 64bit long.");
+		}
+
+		return (t == igbinary_type_long64n ? -1 : 1) * tmp64;
+	} else {
+		// FIXME is format string correct? Not reachable.
+		throw Exception("igbinary_unserialize_long: unknown type '%02x', position %ld", (unsigned char)t, igsd->buffer_offset);
+	}
+
+	return 0;
+}
+/* }}} */
+/* {{{ igbinary_unserialize_double */
+/** Unserializes double. */
+inline static double igbinary_unserialize_double(struct igbinary_unserialize_data *igsd) {
+	union {
+		double d;
+		uint64_t u;
+	} u;
+
+	if (igsd->buffer_offset + 8 > igsd->buffer_size) {
+		throw Exception("igbinary_unserialize_double: end-of-data");
+	}
+
+	u.u = igbinary_unserialize64(igsd);
+
+	return u.d;
+}
+/* }}} */
+/* {{{ igbinary_unserialize_chararray */
+/** Unserializes chararray of string. */
+inline static const String& igbinary_unserialize_chararray(struct igbinary_unserialize_data *igsd, const enum igbinary_type t) {
+	size_t l;
+
+	if (t == igbinary_type_string8 || t == igbinary_type_object8) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_chararray: end-of-data");
+		}
+		l = igbinary_unserialize8(igsd);
+	} else if (t == igbinary_type_string16 || t == igbinary_type_object16) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_chararray: end-of-data");
+		}
+		l = igbinary_unserialize16(igsd);
+		if (igsd->buffer_offset + l > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_chararray: end-of-data");
+		}
+	} else if (t == igbinary_type_string32 || t == igbinary_type_object32) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_chararray: end-of-data");
+		}
+		l = igbinary_unserialize32(igsd);
+		if (igsd->buffer_offset + l > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_chararray: end-of-data");
+		}
+	} else {
+		throw Exception("igbinary_unserialize_chararray: unknown type '0x%x', position %ld", (int)t, (int64_t)igsd->buffer_offset);
+	}
+    if (igsd->buffer_offset + l > igsd->buffer_size) {
+        throw Exception("igbinary_unserialize_chararray: end-of-data");
+    }
+
+
+    /** TODO : Optimize after implementing it the simple way and testing.. */
+    // Make a copy of every occurence of the string.
+	igsd->strings.emplace_back(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), l, CopyString);
+
+    return igsd->strings.back();
+}
+/* }}} */
+/* {{{ igbinary_unserialize_string */
+/** Unserializes string. Unserializes both actual string or by string id. */
+inline static const String& igbinary_unserialize_string(struct igbinary_unserialize_data *igsd, enum igbinary_type t) {
+	size_t i;
+	if (t == igbinary_type_string_id8 || t == igbinary_type_object_id8) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_string: end-of-data");
+		}
+		i = igbinary_unserialize8(igsd TSRMLS_CC);
+	} else if (t == igbinary_type_string_id16 || t == igbinary_type_object_id16) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_string: end-of-data");
+		}
+		i = igbinary_unserialize16(igsd TSRMLS_CC);
+	} else if (t == igbinary_type_string_id32 || t == igbinary_type_object_id32) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_string: end-of-data");
+		}
+		i = igbinary_unserialize32(igsd);
+	} else {
+        throw Exception("igbinary_unserialize_string: unknown type '0x%x', position %ld", (int)t, (uint64_t)igsd->buffer_offset);
+	}
+
+	if (i >= igsd->strings.size()) {
+        throw Exception("igbinary_unserialize_string: string index is out-of-bounds");
+	}
+
+    return igsd->strings[i];
+}
+/* }}} */
 
 /* Unserialize a variant. Same as igbinary7 igbinary_unserialize_zval */
 static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Variant& v, int flags) {
@@ -162,12 +278,35 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 	switch (t) {
 		case igbinary_type_string_empty:
-			{
-				/* TODO: From const StaticString? */
-				String s;
-				tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
-			}
+            {
+                String s = "";
+                // TODO: Make a constant?
+                tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
+            }
 			return;
+		case igbinary_type_long8p:
+		case igbinary_type_long8n:
+		case igbinary_type_long16p:
+		case igbinary_type_long16n:
+		case igbinary_type_long32p:
+		case igbinary_type_long32n:
+		case igbinary_type_long64p:
+		case igbinary_type_long64n:
+			v = igbinary_unserialize_long(igsd, t);
+			break;
+        case igbinary_type_string8:
+        case igbinary_type_string16:
+        case igbinary_type_string32:
+            v = igbinary_unserialize_chararray(igsd, t);
+            break;
+        case igbinary_type_string_id8:
+        case igbinary_type_string_id16:
+        case igbinary_type_string_id32:
+            v = igbinary_unserialize_string(igsd, t);
+            break;
+		case igbinary_type_double:
+			v = igbinary_unserialize_double(igsd);
+			break;
 		case igbinary_type_null:
 			v.setNull();
 			return;
@@ -178,7 +317,7 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 			v = true;
 			return;
 		default:
-			throw Exception("TODO implement igbinary_type %x", (int) t);
+			throw Exception("TODO implement igbinary_unserialize_variant for igbinary_type 0x%02x", (int) t);
 	}
 }
 } // namespace
@@ -189,7 +328,6 @@ namespace HPHP {
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& v) {
 	igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
 
-	printf("buf_len=%d\n", (int)buf_len);
 	igbinary_unserialize_header(&igsd);  // Unserialize header or throw exception.
 	igbinary_unserialize_variant(&igsd, v, WANT_CLEAR);
 	/* FIXME finish_wakeup */

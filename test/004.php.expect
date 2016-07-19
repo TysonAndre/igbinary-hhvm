@@ -1,0 +1,21 @@
+zero: 0
+0600
+OK
+small: 1
+0601
+OK
+small: -1
+0701
+OK
+medium: 1000
+0803e8
+OK
+medium: -1000
+0903e8
+OK
+large: 100000
+0a000186a0
+OK
+large: -100000
+0b000186a0
+OK

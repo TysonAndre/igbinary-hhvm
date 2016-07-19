@@ -25,7 +25,7 @@ Variant HHVM_FUNCTION(igbinary_unserialize, const String &serialized) {
 	}
 	Variant result;
 	try {
-		igbinary_unserialize(reinterpret_cast<const uint8_t*>(serialized.c_str()), serialized.size(), result);
+		igbinary_unserialize(reinterpret_cast<const uint8_t*>(serialized.data()), serialized.size(), result);
 		return result;
 	} catch (Exception &e) {
 		raise_warning(e.getMessage());
