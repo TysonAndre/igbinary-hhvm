@@ -1,0 +1,70 @@
+array(3) {
+  [0]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    string(2) "aa"
+    [("b":protected|"b:protected")]=>
+    string(2) "bb"
+    ["?c"?:("Obj":)?private"?]=>
+    string(2) "cc"
+    ["d"]=>
+    string(2) "dd"
+  }
+  [1]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    string(2) "ee"
+    ["?b"?:protected"?]=>
+    string(2) "ff"
+    ["?c"?:("Obj":)?private"?]=>
+    string(2) "gg"
+    ["d"]=>
+    string(2) "hh"
+  }
+  [2]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    int(1)
+    ["?b"?:protected"?]=>
+    int(2)
+    ["?c"?:("Obj":)?private"?]=>
+    int(3)
+    ["d"]=>
+    int(4)
+  }
+}
+array(3) {
+  [0]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    string(2) "aa"
+    ["?b"?:protected"?]=>
+    string(2) "bb"
+    ["?c"?:("Obj":)?private"?]=>
+    string(2) "cc"
+    ["d"]=>
+    NULL
+  }
+  [1]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    string(2) "ee"
+    ["?b"?:protected"?]=>
+    string(2) "ff"
+    ["?c"?:("Obj":)?private"?]=>
+    string(2) "gg"
+    ["d"]=>
+    NULL
+  }
+  [2]=>
+  object(Obj)#%d (4) {
+    ["a"]=>
+    int(1)
+    ["?b"?:protected"?]=>
+    int(2)
+    ["?c"?:("Obj":)?private"?]=>
+    int(3)
+    ["d"]=>
+    NULL
+  }
+}

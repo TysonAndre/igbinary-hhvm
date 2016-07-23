@@ -1,0 +1,10 @@
+incom
+17034f626a140211016106011101620602
+object(__PHP_Incomplete_Class)#%d (3) {
+  ["__PHP_Incomplete_Class_Name"]=>
+  string(3) "Obj"
+  ["a"]=>
+  int(1)
+  ["b"]=>
+  int(2)
+}

@@ -1,0 +1,9 @@
+000000021708737464436c617373140111036f626a17034f626a14011101612200
+Calling __wakeup
+object(stdClass)#%d (1) {
+  ["obj"]=>
+  object(Obj)#%d (1) {
+    ["a"]=>
+    string(8) "replaced"
+  }
+}

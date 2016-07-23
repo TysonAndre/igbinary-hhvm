@@ -1,0 +1,25 @@
+000000021402060017034f626a14011101611401060011047465737406011a0014010e010102
+call wakeup
+call wakeup
+array(2) {
+  [0]=>
+  object(Obj)#%d (1) {
+    ["a"]=>
+    array(2) {
+      [0]=>
+      string(4) "test"
+      [1]=>
+      string(3) "end"
+    }
+  }
+  [1]=>
+  object(Obj)#%d (1) {
+    ["a"]=>
+    array(2) {
+      [0]=>
+      string(4) "test"
+      [1]=>
+      string(3) "end"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+<?php
+if (!extension_loaded('apc')) {
+	echo "skip APC not loaded";
+	return;
+}
+
+$ext = new ReflectionExtension('apc');
+if (version_compare($ext->getVersion(), '3.1.7', '<')) {
+	echo "skip require APC version 3.1.7 or above";
+	return;
+}
+
+echo "skip TODO APC support";

@@ -1,0 +1,5 @@
+igbinary
+object(Bar)#%d (1) {
+  ["foo"]=>
+  int(10)
+}
