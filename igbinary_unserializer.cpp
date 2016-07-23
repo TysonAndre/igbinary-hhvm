@@ -1,3 +1,13 @@
+/*
+  +----------------------------------------------------------------------+
+  | See COPYING file for further copyright information                   |
+  +----------------------------------------------------------------------+
+  | Author of hhvm fork: Tyson Andre <tysonandre775@hotmail.com>         |
+  | Author of original igbinary: Oleg Grenrus <oleg.grenrus@dynamoid.com>|
+  | See CREDITS for contributors                                         |
+  +----------------------------------------------------------------------+
+*/
+
 /**
  * Function for unserializing. This contains implementation details of  igbinary_unserialize()
  */

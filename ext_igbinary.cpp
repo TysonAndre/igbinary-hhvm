@@ -1,6 +1,12 @@
-/**
- * WIP
- */
+/*
+  +----------------------------------------------------------------------+
+  | See COPYING file for further copyright information                   |
+  +----------------------------------------------------------------------+
+  | Author of hhvm fork: Tyson Andre <tysonandre775@hotmail.com>         |
+  | Author of original igbinary: Oleg Grenrus <oleg.grenrus@dynamoid.com>|
+  | See CREDITS for contributors                                         |
+  +----------------------------------------------------------------------+
+*/
 
 /* Same as equivalent php version? */
 #define IGBINARY_HHVM_VERSION "1.2.1-dev"

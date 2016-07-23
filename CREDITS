@@ -1,0 +1,20 @@
+Author of HHVM fork of igbinary
+* Tyson Andre <tysonandre775@hotmail.com>
+
+igbinary is written for IRC-Galleria by Sulake Dynamoid Oy and its employees.
+
+Author of igbinary for PHP5
+* Oleg Grenrus <oleg.grenrus@iki.fi>
+
+Contributors
+* Teddy Grenman <tricky.github@luuseri.com> (fixes, tests, docs)
+* Kari Lavikka <kari.lavikka@sulake.com> (docs)
+* Pierre Joye (Windows support)
+* Mikko Koppanen (PECL and RPM spec files)
+
+Other
+* Original hash functions (in hash*.{c,cpp,h}) - Bob Jenkins <bob_jenkins@burtleburtle.net>
+
+---
+
+http://irc-galleria.net/ - a finnish social networking site
