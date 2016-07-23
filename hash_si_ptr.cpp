@@ -19,12 +19,11 @@
 
 #include <assert.h>
 
-#include "hash_ptr.h"
-#include "zend.h"
+#include "hash_ptr.hpp"
 
-/* Function similar to zend_inline_hash_func. This is not identical. */
-inline static uint32_t inline_hash_of_address(zend_uintptr_t ptr) {
-	register uint32_t hash = Z_UL(5381);
+/* Function similar to inline_hash_func. This is not identical. */
+inline static uint32_t inline_hash_of_address(uintptr_t ptr) {
+	register uint32_t hash = 5381;
 	/* Note: Hash the least significant bytes first - Those need to influence the final result as much as possible. */
 	hash = ((hash << 5) + hash) + (ptr & 0xff);
 	hash = ((hash << 5) + hash) + ((ptr >> 8) & 0xff);
@@ -71,8 +70,6 @@ int hash_si_ptr_init(struct hash_si_ptr *h, size_t size) {
 /* }}} */
 /* {{{ hash_si_ptr_deinit */
 void hash_si_ptr_deinit(struct hash_si_ptr *h) {
-	size_t i;
-
 	free(h->data);
 	h->data = NULL;
 
@@ -86,7 +83,7 @@ void hash_si_ptr_deinit(struct hash_si_ptr *h) {
  * @param key Pointer to key.
  * @return index.
  */
-inline static size_t _hash_si_ptr_find(struct hash_si_ptr *h, const zend_uintptr_t key) {
+inline static size_t _hash_si_ptr_find(struct hash_si_ptr *h, const uintptr_t key) {
 	uint32_t hv;
 	size_t size;
 
@@ -134,7 +131,7 @@ inline static void hash_si_ptr_rehash(struct hash_si_ptr *h) {
 }
 /* }}} */
 /* {{{ hash_si_ptr_insert */
-int hash_si_ptr_insert(struct hash_si_ptr *h, const zend_uintptr_t key, uint32_t value) {
+int hash_si_ptr_insert(struct hash_si_ptr *h, const uintptr_t key, uint32_t value) {
 	uint32_t hv;
 
 	if (h->size / 4 * 3 < h->used + 1) {
@@ -157,7 +154,7 @@ int hash_si_ptr_insert(struct hash_si_ptr *h, const zend_uintptr_t key, uint32_t
 }
 /* }}} */
 /* {{{ hash_si_ptr_find */
-int hash_si_ptr_find(struct hash_si_ptr *h, const zend_uintptr_t key, uint32_t *value) {
+int hash_si_ptr_find(struct hash_si_ptr *h, const uintptr_t key, uint32_t *value) {
 	uint32_t hv;
 
 	assert(h != NULL);

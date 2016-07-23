@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "ext_igbinary.hpp"
+#include "hash_ptr.hpp"
 
 #include "hphp/runtime/base/array-iterator.h"
 #include "hphp/runtime/base/string-buffer.h"
@@ -34,9 +35,11 @@ struct igbinary_serialize_data {
 	bool scalar;				/**< Serializing scalar. */
 	bool compact_strings;		/**< Check for duplicate strings. */
 	StringIdMap strings;		/**< Hash of already serialized strings. */
-	// struct hash_si_ptr references;	/**< Hash of already serialized potential references. (non-NULL uintptr_t => int32_t) */
-	// int references_id;			/**< Number of things that the unserializer might think are references. >= length of references */
+	struct hash_si_ptr references;	/**< Hash of already serialized potential references. (non-NULL uintptr_t => int32_t) */
+	int references_id;			/**< Number of things that the unserializer might think are references. >= length of references */
 };
+
+inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object);
 
 /* {{{ igbinary_serialize_data_init */
 /** Inits igbinary_serialize_data. */
@@ -48,8 +51,8 @@ inline static int igbinary_serialize_data_init(struct igbinary_serialize_data *i
 	igsd->scalar = scalar;  // TODO use?
 	if (!igsd->scalar) {
 		igsd->strings.reserve(16);
-		// hash_si_ptr_init(&igsd->references, 16);
-		// igsd->references_id = 0;
+		hash_si_ptr_init(&igsd->references, 16);
+		igsd->references_id = 0;
 	}
 
 	igsd->compact_strings = true; /* FIXME allow ini options parsing */
@@ -248,10 +251,39 @@ inline static void igbinary_serialize_array_key(struct igbinary_serialize_data *
 
 /* {{{ igbinay_serialize_array */
 /** Serializes array or (TODO?) objects inner properties */
-inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd, const ArrayData *arr, bool object) {
+inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd, const Variant& self, bool object) {
+	auto tv = self.asTypedValue();
+	const ArrayData* arr;
+
+	switch (tv->m_type) {
+		case KindOfPersistentArray:
+		case KindOfArray:
+			arr = tv->m_data.parr;
+			break;
+		case KindOfRef:
+			{
+				Variant& self_deref = *tv->m_data.pref->var();
+				auto tv_deref = self_deref.asTypedValue();
+
+				switch (tv_deref->m_type) {
+					case KindOfPersistentArray:
+					case KindOfArray:
+						arr = tv_deref->m_data.parr;
+						break;
+					default:
+						throw Exception("igbinary_serialize_array: Did not expect to get ref to DataType 0x%x", (int) tv->m_type);
+				}
+			}
+			break;
+		default:
+			throw Exception("igbinary_serialize_array: Did not expect to get DataType 0x%x", (int) tv->m_type);
+	}
 	size_t n = arr->size();
 
-	// TODO // igbinary_serialize_array_ref(igsd, z_original, false
+	if (!object && igbinary_serialize_array_ref(igsd, self, false) == 0) {
+		return;
+	}
+
 	// TODO: Support refs.
 
 	if (n <= 0xff) {
@@ -289,6 +321,58 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 	}
 }
 /* }}} */
+/* {{{ igbinary_serialize_array_ref */
+/** Serializes array reference (or reference in an object). Returns 0 on success. */
+inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object) {
+	auto tv = self.asTypedValue();
+	uintptr_t key = 0;  /* The address of the pointer to the zend_refcounted struct or other struct */
+
+	switch (tv->m_type) {
+		case KindOfPersistentArray:
+		case KindOfArray:
+			key = reinterpret_cast<uintptr_t>(tv->m_data.parr);
+			break;
+		case KindOfRef:
+			key = reinterpret_cast<uintptr_t>(tv->m_data.pref);
+			// TODO ref to objects, check bool object
+			break;
+		default:
+			throw Exception("igbinary_serialize_array_ref expected object, array, or reference, got none of those : DataType=0x%02x", (int) tv->m_type);
+	}
+	uint32_t t = 0;
+	uint32_t *i = &t;
+
+	if (hash_si_ptr_find(&igsd->references, key, i) == 1) {
+		t = igsd->references_id++;
+		/* FIXME hack? If the top-level element was an array, we assume that it can't be a reference when we serialize it, */
+		/* because that's the way it was serialized in php5. */
+		/* Does this work with different forms of recursive arrays? */
+		if (t > 0 || object) {
+			hash_si_ptr_insert(&igsd->references, key, t);  /* TODO: Add a specialization for fixed-length numeric keys? */
+		}
+		return 1;
+	} else {
+		enum igbinary_type type;
+		if (*i <= 0xff) {
+			type = object ? igbinary_type_objref8 : igbinary_type_ref8;
+			igbinary_serialize8(igsd, (uint8_t) type);
+			igbinary_serialize8(igsd, (uint8_t) *i);
+		} else if (*i <= 0xffff) {
+			type = object ? igbinary_type_objref16 : igbinary_type_ref16;
+			igbinary_serialize8(igsd, (uint8_t) type TSRMLS_CC);
+			igbinary_serialize16(igsd, (uint16_t) *i);
+		} else {
+			type = object ? igbinary_type_objref32 : igbinary_type_ref32;
+			igbinary_serialize8(igsd, (uint8_t) type TSRMLS_CC);
+			igbinary_serialize32(igsd, (uint32_t) *i TSRMLS_CC);
+		}
+
+		return 0;
+	}
+
+	return 1;
+}
+/* }}} */
 
 /* {{{ igbinary_serialize_variant */
 /** Serializes a variant. Guaranteed not to be an array/object key. */
@@ -317,8 +401,23 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 			return;
 		case KindOfPersistentArray:
 		case KindOfArray:
-			igbinary_serialize_array(igsd, tv->m_data.parr, false);
+			igbinary_serialize_array(igsd, self, false);
 			return;
+		case KindOfRef:
+			{
+				Variant& self_deref = *tv->m_data.pref->var();
+				if (self_deref.isArray()) {
+					igbinary_serialize_array(igsd, self, false);
+					return;
+				} else if (self_deref.isObject()) {
+					// Nothing else to do, already recorded that it was an object and a reference.
+				} else {
+					if (igbinary_serialize_array_ref(igsd, self, false) == 0) {
+						return;  // it was already serialized, and we printed the reference.
+					}
+				}
+				igbinary_serialize_variant(igsd, self_deref);
+			}
 		default:
 			throw Exception("igbinary_serialize_variant: Not implemented yet for DataType 0x%x", (int) tv->m_type);
 	}
