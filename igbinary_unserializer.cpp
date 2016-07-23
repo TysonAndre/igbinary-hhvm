@@ -4,11 +4,13 @@
 
 #include "ext_igbinary.hpp"
 
+#include "hphp/runtime/base/array-init.h"
+
 using namespace HPHP;
 
-#define WANT_CLEAR     (0)
-#define WANT_OBJECT    (1<<0)
-#define WANT_REF       (1<<1)
+#define WANT_CLEAR	 (0)
+#define WANT_OBJECT	(1<<0)
+#define WANT_REF	   (1<<1)
 
 namespace {
 
@@ -16,14 +18,14 @@ namespace {
 
 /** Unserializer data.
  * Uses RAII to ensure it is de-initialized.
- * @author Oleg Grenrus <oleg.grenrus@dynamoid.com>
+ * Based on data structure by Oleg Grenrus <oleg.grenrus@dynamoid.com>
  */
 struct igbinary_unserialize_data {
 	const uint8_t *buffer;			/**< Buffer. */
 	const size_t buffer_size;		/**< Buffer size. */
 	size_t buffer_offset;			/**< Current read offset. */
 
-    std::vector<String> strings;    /**< Unserialized strings. */
+	std::vector<String> strings;	/**< Unserialized strings. */
 
 	// zval **references;				/**< Unserialized Arrays/Objects. */
 	size_t references_count;		/**< Unserialized array/objects count. */
@@ -42,11 +44,13 @@ igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t 
 }
 
 igbinary_unserialize_data::~igbinary_unserialize_data() {
-    // Nothing to do for strings.
+	// Nothing to do for strings.
 	//free(references);
 }
 
 /* }}} */
+
+static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Variant& v, int flags);
 
 /* {{{ Unserializing functions prototypes */
 /*
@@ -225,16 +229,16 @@ inline static const String& igbinary_unserialize_chararray(struct igbinary_unser
 	} else {
 		throw Exception("igbinary_unserialize_chararray: unknown type '0x%x', position %ld", (int)t, (int64_t)igsd->buffer_offset);
 	}
-    if (igsd->buffer_offset + l > igsd->buffer_size) {
-        throw Exception("igbinary_unserialize_chararray: end-of-data");
-    }
+	if (igsd->buffer_offset + l > igsd->buffer_size) {
+		throw Exception("igbinary_unserialize_chararray: end-of-data");
+	}
 
 
-    /** TODO : Optimize after implementing it the simple way and testing.. */
-    // Make a copy of every occurence of the string.
+	/** TODO : Optimize after implementing it the simple way and testing.. */
+	// Make a copy of every occurence of the string.
 	igsd->strings.emplace_back(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), l, CopyString);
 
-    return igsd->strings.back();
+	return igsd->strings.back();
 }
 /* }}} */
 /* {{{ igbinary_unserialize_string */
@@ -245,26 +249,125 @@ inline static const String& igbinary_unserialize_string(struct igbinary_unserial
 		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
 			throw Exception("igbinary_unserialize_string: end-of-data");
 		}
-		i = igbinary_unserialize8(igsd TSRMLS_CC);
+		i = igbinary_unserialize8(igsd);
 	} else if (t == igbinary_type_string_id16 || t == igbinary_type_object_id16) {
 		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
 			throw Exception("igbinary_unserialize_string: end-of-data");
 		}
-		i = igbinary_unserialize16(igsd TSRMLS_CC);
+		i = igbinary_unserialize16(igsd);
 	} else if (t == igbinary_type_string_id32 || t == igbinary_type_object_id32) {
 		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
 			throw Exception("igbinary_unserialize_string: end-of-data");
 		}
 		i = igbinary_unserialize32(igsd);
 	} else {
-        throw Exception("igbinary_unserialize_string: unknown type '0x%x', position %ld", (int)t, (uint64_t)igsd->buffer_offset);
+		throw Exception("igbinary_unserialize_string: unknown type '0x%x', position %ld", (int)t, (uint64_t)igsd->buffer_offset);
 	}
 
 	if (i >= igsd->strings.size()) {
-        throw Exception("igbinary_unserialize_string: string index is out-of-bounds");
+		throw Exception("igbinary_unserialize_string: string index is out-of-bounds");
 	}
 
-    return igsd->strings[i];
+	return igsd->strings[i];
+}
+/* }}} */
+/* Unserialize an array key (int64 or string). Postcondition: v.isInteger() || v.isString(), or Exception thrown. See igbinary_unserialize_variant. */
+static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v) {
+	enum igbinary_type t;
+
+	if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+		throw Exception("igbinary_unserialize_variant: end-of-data");
+	}
+	t = (enum igbinary_type) igbinary_unserialize8(igsd);
+	switch (t) {
+		case igbinary_type_string_empty:
+			{
+				String s = "";
+				// TODO: Make a constant?
+				tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
+			}
+			break;
+		case igbinary_type_long8p:
+		case igbinary_type_long8n:
+		case igbinary_type_long16p:
+		case igbinary_type_long16n:
+		case igbinary_type_long32p:
+		case igbinary_type_long32n:
+		case igbinary_type_long64p:
+		case igbinary_type_long64n:
+			v = igbinary_unserialize_long(igsd, t);
+			break;
+		case igbinary_type_string8:
+		case igbinary_type_string16:
+		case igbinary_type_string32:
+			v = igbinary_unserialize_chararray(igsd, t);
+			break;
+		case igbinary_type_string_id8:
+		case igbinary_type_string_id16:
+		case igbinary_type_string_id32:
+			v = igbinary_unserialize_string(igsd, t);
+			break;
+		default:
+			throw Exception("igbinary_unserialize_array_key: Unexpected igbinary_type 0x%02x", (int) t);
+	}
+}
+/* {{{ igbinary_unserialize_array */
+/** Unserializes array. */
+inline static Array igbinary_unserialize_array(struct igbinary_unserialize_data *igsd, enum igbinary_type t, int flags) {
+	/* WANT_OBJECT means that z will be an object (if dereferenced) - TODO implement or refactor. */
+	/* WANT_REF means that z will be wrapped by an IS_REFERENCE */
+	size_t n;
+	if (t == igbinary_type_array8) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_array: end-of-data");
+		}
+		n = igbinary_unserialize8(igsd);
+	} else if (t == igbinary_type_array16) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_array: end-of-data");
+		}
+		n = igbinary_unserialize16(igsd);
+	} else if (t == igbinary_type_array32) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_array: end-of-data");
+		}
+		n = igbinary_unserialize32(igsd);
+	} else {
+		throw Exception("igbinary_unserialize_array: unknown type 0x%02x, position %ld", t, igsd->buffer_offset);
+	}
+
+	/* n cannot be larger than the number of minimum "objects" in the array */
+	if (n > igsd->buffer_size - igsd->buffer_offset) {
+        throw Exception("igbinary_unserialize_array: data size %llu smaller that requested array length %llu.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long) n);
+	}
+
+	if (flags & WANT_REF) {
+        throw Exception("igbinary_unserialize_array: references not implemented yet");
+	}
+	if ((flags & WANT_OBJECT) != 0) {
+        // TODO remove
+        throw Exception("igbinary_unserialize_array: objects not implemented yet");
+	}
+
+	/* empty array */
+	if (n == 0) {
+		return Array::Create();  // static empty array.
+	}
+
+    Array arr = ArrayInit(n, ArrayInit::Mixed{}).toArray();
+
+	for (size_t i = 0; i < n; i++) {
+        Variant key;
+        igbinary_unserialize_array_key(igsd, key);
+        // Postcondition: key.isString() || key.isInteger()
+
+        Variant& value = arr.lvalAt(key, AccessFlags::Key);
+        // FIXME: handle case of value already existing? (analogous to putInOverwrittenList)
+
+        // TODO: Any other code for references
+        igbinary_unserialize_variant(igsd, value, WANT_CLEAR);
+	}
+    return arr;
 }
 /* }}} */
 
@@ -277,12 +380,20 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 	}
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 	switch (t) {
-		case igbinary_type_string_empty:
+		case igbinary_type_array8:
+		case igbinary_type_array16:
+		case igbinary_type_array32:
             {
-                String s = "";
-                // TODO: Make a constant?
-                tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
+                auto a = igbinary_unserialize_array(igsd, t, flags);
+                tvMove(make_tv<KindOfArray>(a.detach()), *v.asTypedValue());
             }
+			break;
+		case igbinary_type_string_empty:
+			{
+				String s = "";
+				// TODO: Make a constant?
+				tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
+			}
 			return;
 		case igbinary_type_long8p:
 		case igbinary_type_long8n:
@@ -294,16 +405,16 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 		case igbinary_type_long64n:
 			v = igbinary_unserialize_long(igsd, t);
 			break;
-        case igbinary_type_string8:
-        case igbinary_type_string16:
-        case igbinary_type_string32:
-            v = igbinary_unserialize_chararray(igsd, t);
-            break;
-        case igbinary_type_string_id8:
-        case igbinary_type_string_id16:
-        case igbinary_type_string_id32:
-            v = igbinary_unserialize_string(igsd, t);
-            break;
+		case igbinary_type_string8:
+		case igbinary_type_string16:
+		case igbinary_type_string32:
+			v = igbinary_unserialize_chararray(igsd, t);
+			break;
+		case igbinary_type_string_id8:
+		case igbinary_type_string_id16:
+		case igbinary_type_string_id32:
+			v = igbinary_unserialize_string(igsd, t);
+			break;
 		case igbinary_type_double:
 			v = igbinary_unserialize_double(igsd);
 			break;
