@@ -1,0 +1,12 @@
+array("foo", "foo", "foo")
+140306001103666f6f06010e0006020e00
+OK
+array("one" => 1, "two" => 2))
+140211036f6e650601110374776f0602
+OK
+array("kek" => "lol", "lol" => "kek")
+140211036b656b11036c6f6c0e010e00
+OK
+array("" => "empty")
+14010d1105656d707479
+OK

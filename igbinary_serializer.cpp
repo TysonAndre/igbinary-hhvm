@@ -25,6 +25,7 @@ namespace{
 inline static void igbinary_serialize_variant(struct igbinary_serialize_data *igsd, const Variant& self);
 
 typedef hphp_hash_map<const StringData*, uint32_t, string_data_hash, string_data_same> StringIdMap;
+
 /** Serializer data.
  * @author Oleg Grenrus <oleg.grenrus@dynamoid.com>
  */
@@ -201,7 +202,7 @@ inline static void igbinary_serialize_string(struct igbinary_serialize_data *igs
 		return;
 	}
 
-	if (igsd->scalar || !igsd->compact_strings || true) {
+	if (igsd->scalar || !igsd->compact_strings) {
 		igbinary_serialize_chararray(igsd, string);
 		return;
 	}

@@ -247,6 +247,7 @@ inline static const String& igbinary_unserialize_chararray(struct igbinary_unser
 	/** TODO : Optimize after implementing it the simple way and testing.. */
 	// Make a copy of every occurence of the string.
 	igsd->strings.emplace_back(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), l, CopyString);
+	igsd->buffer_offset += l;
 
 	return igsd->strings.back();
 }
@@ -318,7 +319,7 @@ static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Vari
 			v = igbinary_unserialize_string(igsd, t);
 			break;
 		default:
-			throw Exception("igbinary_unserialize_array_key: Unexpected igbinary_type 0x%02x", (int) t);
+			throw Exception("igbinary_unserialize_array_key: Unexpected igbinary_type 0x%02x at offset %lld", (int) t, (long long) igsd->buffer_offset);
 	}
 }
 /* {{{ igbinary_unserialize_array */
@@ -438,7 +439,7 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 			v = true;
 			return;
 		default:
-			throw Exception("TODO implement igbinary_unserialize_variant for igbinary_type 0x%02x", (int) t);
+			throw Exception("TODO implement igbinary_unserialize_variant for igbinary_type 0x%02x, offset %lld", (int) t, (long long) igsd->buffer_offset);
 	}
 }
 } // namespace
