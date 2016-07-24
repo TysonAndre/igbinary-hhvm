@@ -1,7 +1,7 @@
 igbinary-hhvm
 ============
 
-Build Status: TODO
+Build Status: 11 tests passing, 42 tests failing
 
 Native igbinary for HHVM. Not working yet.
 

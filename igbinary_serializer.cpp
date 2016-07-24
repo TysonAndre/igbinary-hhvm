@@ -336,7 +336,7 @@ inline static void igbinary_serialize_object_name(struct igbinary_serialize_data
 	// TODO: optimize
 	const auto result = igsd->strings.insert(std::pair<const StringData*, uint32_t>(class_name, (uint32_t)igsd->strings.size()));
 	if (result.second) {  // First time the class name was used as a string.
-		auto name_len = igsd->strings.size();
+		auto name_len = class_name->size();
 		if (name_len <= 0xff) {
 			igbinary_serialize8(igsd, (uint8_t) igbinary_type_object8);
 			igbinary_serialize8(igsd, (uint8_t) name_len TSRMLS_CC);
@@ -452,8 +452,9 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 		// TODO Equivalent of r = igbinary_serialize_array_sleep(igsd, z, HASH_OF(&h), ce, incomplete_class);
 		// return;
 	}
-
-	throw Exception("igbinary_serialize_object: TODO: Handle serializing objects");
+	Array properties = obj->toArray();  // FIXME do names differ by visibility?
+	igbinary_serialize_object_name(igsd, obj->getClassName().get());
+	igbinary_serialize_array(igsd, properties, true);
 }
 /* }}} */
 /* {{{ igbinary_serialize_array_ref_by_key */

@@ -1,10 +1,10 @@
 /*
   +----------------------------------------------------------------------+
-  | See COPYING file for further copyright information                   |
+  | See COPYING file for further copyright information				   |
   +----------------------------------------------------------------------+
-  | Author of hhvm fork: Tyson Andre <tysonandre775@hotmail.com>         |
+  | Author of hhvm fork: Tyson Andre <tysonandre775@hotmail.com>		 |
   | Author of original igbinary: Oleg Grenrus <oleg.grenrus@dynamoid.com>|
-  | See CREDITS for contributors                                         |
+  | See CREDITS for contributors										 |
   +----------------------------------------------------------------------+
 */
 
@@ -24,6 +24,12 @@ using namespace HPHP;
 
 namespace {
 
+const StaticString
+  s_unserialize("unserialize"),
+  s_PHP_Incomplete_Class("__PHP_Incomplete_Class"),
+  s_PHP_Incomplete_Class_Name("__PHP_Incomplete_Class_Name"),
+  s___wakeup("__wakeup");
+
 /* {{{ data types */
 
 /** Unserializer data.
@@ -36,31 +42,23 @@ struct igbinary_unserialize_data {
 	size_t buffer_offset;			/**< Current read offset. */
 
 	std::vector<String> strings;	/**< Unserialized strings. */
-
-	// zval **references;				/**< Unserialized Arrays/Objects. */
-	size_t references_count;		/**< Unserialized array/objects count. */
-	size_t references_capacity;		/**< Unserialized array/object array capacity. */
-
-	int error;						/**< Error number. Not used. */
+	std::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
 };
-igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t buf_size) : buffer(buf), buffer_size(buf_size), buffer_offset(0), strings(0) {
-	references_count = 0;
-	references_capacity = 4;
-	// FIXME
-	//references = malloc(sizeof(references[0]) * igsd->references_capacity);
+igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t buf_size) : buffer(buf), buffer_size(buf_size), buffer_offset(0), strings(0), references(0) {
 }
 
 igbinary_unserialize_data::~igbinary_unserialize_data() {
-	// Nothing to do for strings.
-	//free(references);
+	// Nothing to do for strings or references
+	// TODO: Decrement reference counts for wakeup() for any remaining entries in the wakeup list, once wakeup list is created.
 }
 
 /* }}} */
 
 static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Variant& v, int flags);
+static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v);
 
 /* {{{ Unserializing functions prototypes */
 /*
@@ -85,6 +83,29 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 // inline static void igbinary_unserialize_ref(struct igbinary_unserialize_data *igsd, enum igbinary_type t, zval *const z, int flags);
 
 static void igbinary_unserialize_variant(struct igbinary_unserialize_data *igsd, Variant& v, int flags);
+*/
+/* }}} */
+
+/*
+static inline int igsd_defer_wakeup(struct igbinary_unserialize_data *igsd, Variant* v) {
+	// TODO: Increment ref count of v
+	if (igsd->wakeup_count >= igsd->wakeup_capacity) {
+		if (igsd->wakeup_capacity == 0) {
+			igsd->wakeup_capacity = 2;
+			igsd->wakeup = emalloc(sizeof(igsd->wakeup[0]) * igsd->wakeup_capacity);
+		} else {
+			igsd->wakeup_capacity *= 2;
+			igsd->wakeup = erealloc(igsd->wakeup, sizeof(igsd->wakeup[0]) * igsd->wakeup_capacity);
+			if (igsd->wakeup == NULL) {
+				return 1;
+			}
+		}
+	}
+
+	ZVAL_COPY(&igsd->wakeup[igsd->wakeup_count], z);
+	igsd->wakeup_count++;
+	return 0;
+}
 */
 /* }}} */
 
@@ -253,7 +274,7 @@ inline static const String& igbinary_unserialize_chararray(struct igbinary_unser
 }
 /* }}} */
 /* {{{ igbinary_unserialize_string */
-/** Unserializes string. Unserializes both actual string or by string id. */
+/** Unserializes string. Unserializes by string id. */
 inline static const String& igbinary_unserialize_string(struct igbinary_unserialize_data *igsd, enum igbinary_type t) {
 	size_t i;
 	if (t == igbinary_type_string_id8 || t == igbinary_type_object_id8) {
@@ -280,6 +301,191 @@ inline static const String& igbinary_unserialize_string(struct igbinary_unserial
 	}
 
 	return igsd->strings[i];
+}
+/* }}} */
+/* {{{ igbinary_unserialize_object_prop */
+/* Similar to unserializeProp. nProp is the number of remaining dynamic properties. */
+inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *igsd, ObjectData* obj, const String& key, int nProp) {
+	// Do a two-step look up
+	// FIXME not sure how protected variables are handled in igbinary in php5. Try to imitate that.
+	// For now, assume it can be from the class or any parent class.
+	auto const lookup = obj->getProp(nullptr, key.get());
+	Variant* t;
+
+	if (!lookup.prop || !lookup.accessible) {
+		// Dynamic property. If this is the first, and we're using MixedArray,
+		// we need to pre-allocate space in the array to ensure the elements
+		// dont move during unserialization.
+		t = &obj->reserveProperties(nProp).lvalAt(key, AccessFlags::Key);
+	} else {
+		t = &tvAsVariant(lookup.prop);
+	}
+
+	if (UNLIKELY(isRefcountedType(t->getRawType()))) {
+		throw Exception("igbinary_unserialize_object_prop: TODO handle duplicate keys or overriding existing data");
+			//uns->putInOverwrittenList(*t);
+	}
+
+	igbinary_unserialize_variant(igsd, *t, WANT_CLEAR);
+	// FIXME Type check the unserialized data.
+	/*
+	if (!RuntimeOption::RepoAuthoritative) return;
+	if (!Repo::get().global().HardPrivatePropInference) return;
+	*/
+
+	/*
+	 * We assume for performance reasons in repo authoriative mode that
+	 * we can see all the sets to private properties in a class.
+	 *
+	 * It's a hole in this if we don't check unserialization doesn't
+	 * violate what we've seen, which we handle by throwing if the repo
+	 * was built with this option.
+	 */
+	/*
+	auto const cls	= obj->getVMClass();
+	auto const slot = cls->lookupDeclProp(key.get());
+	if (UNLIKELY(slot == kInvalidSlot)) return;
+	auto const repoTy = obj->getVMClass()->declPropRepoAuthType(slot);
+	if (LIKELY(tvMatchesRepoAuthType(*t->asTypedValue(), repoTy))) {
+		return;
+	}
+	throwUnexpectedType(key, obj, *t);
+	*/
+}
+/* }}} */
+/* {{{ igbinary_unserialize_object_new_contents_leftover */
+/**
+ * Inefficiently unserialize the remaining properties of an object, given an incomplete object with class set but no properties.
+ * TODO: Pass this a list.
+ */
+inline static void igbinary_unserialize_object_new_contents_leftover(struct igbinary_unserialize_data* igsd, enum igbinary_type t, Object* obj, int n) {
+	int remainingProps = n;
+	//Class* objCls = obj->getVMClass();
+	while (remainingProps > 0) {
+		/*
+			use the number of properties remaining as an estimate for
+			the total number of dynamic properties when we see the
+			first dynamic prop.	see getVariantPtr
+		*/
+		Variant v;
+		igbinary_unserialize_array_key(igsd, v);
+		String key = v.toString();
+		igbinary_unserialize_object_prop(igsd, obj->get(), key, remainingProps--);
+	}
+}
+/* }}} */
+/* {{{igbinary_unserialize_object_new_contents */
+/**
+ * Unserialize the properties of an object, given an incomplete object with class set but no properties.
+ */
+inline static void igbinary_unserialize_object_new_contents(struct igbinary_unserialize_data* igsd, enum igbinary_type t, Object* obj) {
+	int n;
+	if (t == igbinary_type_array8) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_array: end-of-data");
+		}
+		n = igbinary_unserialize8(igsd);
+	} else if (t == igbinary_type_array16) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_array: end-of-data");
+		}
+		n = igbinary_unserialize16(igsd);
+	} else if (t == igbinary_type_array32) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_object_contents: end-of-data");
+		}
+		n = igbinary_unserialize32(igsd);
+	} else {
+		throw Exception("igbinary_unserialize_object_contents: unknown type '%02x', position %lld", (int) t, (long long) igsd->buffer_offset);
+	}
+	/* n cannot be larger than the number of minimum "objects" in the array */
+	if (n > igsd->buffer_size - igsd->buffer_offset) {
+		throw Exception("igbinary_unserialize_object_contents: data size %lld smaller that requested array length %lld.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long)n);
+	}
+	if (obj->get()->isCollection()) {
+		throw Exception("igbinary_unserialize_object_contents: Cannot unserialize HPHP collections");
+	}
+	if (n == 0) {
+		return;
+	}
+	// FIXME: Iterate over object properties first(and figure out demangling), it's probably faster that way.
+	igbinary_unserialize_object_new_contents_leftover(igsd, t, obj, n);
+
+	// Wakeup will be deferred by caller.
+}
+/* }}} */
+/** Unserialize object, store into v. */
+inline static void igbinary_unserialize_object(struct igbinary_unserialize_data *igsd, enum igbinary_type t, Variant& v, int flags) {
+	String class_name;
+	if (t == igbinary_type_object8 || t == igbinary_type_object16 || t == igbinary_type_object32) {
+		class_name = igbinary_unserialize_chararray(igsd, t);
+	} else if (t == igbinary_type_object_id8 || t == igbinary_type_object_id16 || t == igbinary_type_object_id32) {
+		class_name = igbinary_unserialize_string(igsd, t);
+	} else {
+		throw Exception("igbinary_unserialize_object: unknown object type '%02x', position %llu", (int)t, (long long)igsd->buffer_offset);
+	}
+
+	Class* cls = Unit::loadClass(class_name.get());  // with autoloading
+	Object obj;
+	if (cls) {
+		// Only unserialize CPP extension types which can actually
+		// support it. Otherwise, we risk creating a CPP object
+		// without having it initialized completely.
+		if (cls->instanceCtor() && !cls->isCppSerializable() &&
+				!cls->isCollectionClass()) {
+			// TODO: Make corresponding check when serializing?
+			throw Exception("igbinary_unserialize_object: Unable to completely unserialize internal cpp class");
+		} else {
+			obj = Object{cls};
+			if (UNLIKELY(collections::isType(cls, CollectionType::Pair))) {  // && (size != 2))) {
+				throw Exception("igbinary_unserialize_object: HPHP type Pair unsupported, incompatible with php5/php7 implementation");
+			}
+		}
+	} else {
+		obj = Object{SystemLib::s___PHP_Incomplete_ClassClass};
+		obj->o_set(s_PHP_Incomplete_Class_Name, class_name);
+	}
+
+	// FIXME custom unserializer?
+
+	/* add this to the list of unserialized references, get the index */
+	// FIXME support refs
+
+	// *obj will remain valid until __wakeup is called, which is done at the very end.
+	igsd->references.push_back(&v);  // FIXME: Account for flags & WANT_REF
+
+	t = (enum igbinary_type) igbinary_unserialize8(igsd);
+	switch (t) {
+		case igbinary_type_array8:
+		case igbinary_type_array16:
+		case igbinary_type_array32:
+			igbinary_unserialize_object_new_contents(igsd, t, &obj);
+			break;
+		case igbinary_type_object_ser8:
+		case igbinary_type_object_ser16:
+		case igbinary_type_object_ser32:
+			throw Exception("igbinary_unserialize_object: TODO support igbinary_type_object_ser* %02x", (int)t);
+
+			/*
+			r = igbinary_unserialize_object_ser(igsd, t, IGB_REF_VAL(igsd, ref_n), ce);
+			if (r != 0) {
+				break;
+			}
+			if (incomplete_class) {
+				php_store_class_name(IGB_REF_VAL(igsd, ref_n), name, name_len);
+			}
+			if ((flags & WANT_REF) != 0) {
+				ZVAL_MAKE_REF(z);
+			}
+			break;
+			*/
+		default:
+			throw Exception("igbinary_unserialize_object: unknown object inner type '%02x', position %lld", (int)t, (long long)igsd->buffer_offset);
+	}
+
+	if (cls && cls->lookupMethod(s___wakeup.get())) {
+		throw Exception("igbinary_unserialize_object: TODO: Defer __wakeup and increment ref counts if object implements __wakeup");
+	}
 }
 /* }}} */
 /* Unserialize an array key (int64 or string). Postcondition: v.isInteger() || v.isString(), or Exception thrown. See igbinary_unserialize_variant. */
@@ -324,7 +530,7 @@ static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Vari
 }
 /* {{{ igbinary_unserialize_array */
 /** Unserializes array. */
-inline static Array igbinary_unserialize_array(struct igbinary_unserialize_data *igsd, enum igbinary_type t, int flags) {
+inline static void igbinary_unserialize_array(struct igbinary_unserialize_data *igsd, enum igbinary_type t, Variant& v, bool wantRef) {
 	/* WANT_OBJECT means that z will be an object (if dereferenced) - TODO implement or refactor. */
 	/* WANT_REF means that z will be wrapped by an IS_REFERENCE */
 	size_t n;
@@ -349,39 +555,75 @@ inline static Array igbinary_unserialize_array(struct igbinary_unserialize_data 
 
 	/* n cannot be larger than the number of minimum "objects" in the array */
 	if (n > igsd->buffer_size - igsd->buffer_offset) {
-        throw Exception("igbinary_unserialize_array: data size %llu smaller that requested array length %llu.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long) n);
+		throw Exception("igbinary_unserialize_array: data size %llu smaller that requested array length %llu.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long) n);
 	}
 
-	if (flags & WANT_REF) {
-        throw Exception("igbinary_unserialize_array: references not implemented yet");
-	}
-	if ((flags & WANT_OBJECT) != 0) {
-        // TODO remove
-        throw Exception("igbinary_unserialize_array: objects not implemented yet");
+	if (wantRef) {
+		throw Exception("igbinary_unserialize_array: references not implemented yet");
 	}
 
+	igsd->references.push_back(&v);
 	/* empty array */
 	if (n == 0) {
-		return Array::Create();  // static empty array.
+		v = Array::Create();  // static empty array.
+		return;
 	}
 
-    Array arr = ArrayInit(n, ArrayInit::Mixed{}).toArray();
+	v = ArrayInit(n, ArrayInit::Mixed{}).toArray();
+	// Need to add a reference just in case of a duplicate key causing the original variant reference count to be decremented.
+	Array arr = v.toArray();
 
 	for (size_t i = 0; i < n; i++) {
-        Variant key;
-        igbinary_unserialize_array_key(igsd, key);
-        // Postcondition: key.isString() || key.isInteger()
+		Variant key;
+		igbinary_unserialize_array_key(igsd, key);
+		// Postcondition: key.isString() || key.isInteger()
 
-        Variant& value = arr.lvalAt(key, AccessFlags::Key);
-        // FIXME: handle case of value already existing? (analogous to putInOverwrittenList)
+		Variant& value = arr.lvalAt(key, AccessFlags::Key);
+		// FIXME: handle case of value already existing? (analogous to putInOverwrittenList)
 
-        // TODO: Any other code for references
-        igbinary_unserialize_variant(igsd, value, WANT_CLEAR);
+		// TODO: Any other code for references
+		igbinary_unserialize_variant(igsd, value, WANT_CLEAR);
 	}
-    return arr;
 }
 /* }}} */
+/* {{{ */
+static void igbinary_unserialize_ref(igbinary_unserialize_data *igsd, enum igbinary_type t, Variant& v, int flags) {
+	size_t n;
 
+	if (t == igbinary_type_ref8 || t == igbinary_type_objref8) {
+		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_ref: end-of-data");
+		}
+		n = igbinary_unserialize8(igsd TSRMLS_CC);
+	} else if (t == igbinary_type_ref16 || t == igbinary_type_objref16) {
+		if (igsd->buffer_offset + 2 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_ref: end-of-data");
+		}
+		n = igbinary_unserialize16(igsd TSRMLS_CC);
+	} else if (LIKELY(t == igbinary_type_ref32 || t == igbinary_type_objref32)) {
+		if (igsd->buffer_offset + 4 > igsd->buffer_size) {
+			throw Exception("igbinary_unserialize_ref: end-of-data");
+		}
+		n = igbinary_unserialize32(igsd TSRMLS_CC);
+	} else {
+		throw Exception("igbinary_unserialize_ref: unknown type '%02x', position %lld", (int)t, (long long)igsd->buffer_offset);
+	}
+
+	if (n >= igsd->references.size()) {
+		throw Exception("igbinary_unserialize_ref: invalid reference %u >= %u", (int) n, (int)igsd->references.size());
+	}
+
+	if ((flags & WANT_REF) != 0) {
+		// replace reference
+		throw Exception("igbinary_unserialize_ref FIXME handle refs");
+	} else {
+		Variant::AssignValHelper(&v, igsd->references[n]);
+	}
+
+
+}
+/* }}} */
+/* {{{ igbinary_unserialize_variant */
 /* Unserialize a variant. Same as igbinary7 igbinary_unserialize_zval */
 static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Variant& v, int flags) {
 	enum igbinary_type t;
@@ -391,13 +633,28 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 	}
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 	switch (t) {
+		case igbinary_type_objref8:
+		case igbinary_type_objref16:
+		case igbinary_type_objref32:
+		case igbinary_type_ref8:
+		case igbinary_type_ref16:
+		case igbinary_type_ref32:
+			igbinary_unserialize_ref(igsd, t, v, flags);
+			return;
+		case igbinary_type_object8:
+		case igbinary_type_object16:
+		case igbinary_type_object32:
+		case igbinary_type_object_id8:
+		case igbinary_type_object_id16:
+		case igbinary_type_object_id32:
+			igbinary_unserialize_object(igsd, t, v, flags);
+			break;
 		case igbinary_type_array8:
 		case igbinary_type_array16:
 		case igbinary_type_array32:
-            {
-                auto a = igbinary_unserialize_array(igsd, t, flags);
-                tvMove(make_tv<KindOfArray>(a.detach()), *v.asTypedValue());
-            }
+			{
+				igbinary_unserialize_array(igsd, t, v, (flags & WANT_REF) != 0);
+			}
 			break;
 		case igbinary_type_string_empty:
 			{
@@ -442,6 +699,7 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 			throw Exception("TODO implement igbinary_unserialize_variant for igbinary_type 0x%02x, offset %lld", (int) t, (long long) igsd->buffer_offset);
 	}
 }
+/* }}} */
 } // namespace
 
 namespace HPHP {
