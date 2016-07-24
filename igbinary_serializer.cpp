@@ -23,7 +23,11 @@ using namespace HPHP;
 
 namespace{
 
+const StaticString
+	s_serialize("serialize");
+
 inline static void igbinary_serialize_variant(struct igbinary_serialize_data *igsd, const Variant& self);
+inline static int igbinary_serialize_array_ref_by_key(struct igbinary_serialize_data *igsd, const uintptr_t key, bool object);
 
 typedef hphp_hash_map<const StringData*, uint32_t, string_data_hash, string_data_same> StringIdMap;
 
@@ -169,6 +173,14 @@ inline static void igbinary_serialize_double(struct igbinary_serialize_data *igs
 	igbinary_serialize64(igsd, u.u);
 }
 /* }}} */
+/* {{{ igbinary_serialize_append_bytes */
+inline static void igbinary_serialize_append_bytes(struct igbinary_serialize_data *igsd, const char* data, const size_t len) {
+	StringBuffer& buf = igsd->buffer;
+	char* const bytes = buf.appendCursor(len);
+	memcpy(bytes, data, len);
+	buf.resize(buf.size() + len);
+}
+
 /* {{{ igbinary_serialize_chararray */
 /** Serializes string data. */
 inline static int igbinary_serialize_chararray(struct igbinary_serialize_data *igsd, const StringData* string) {
@@ -186,10 +198,7 @@ inline static int igbinary_serialize_chararray(struct igbinary_serialize_data *i
 		throw Exception("igbinary_serialize_chararray: Too long for other igbinary v2 implementations to parse");
 	}
 
-	StringBuffer& buf = igsd->buffer;
-	char* const bytes = buf.appendCursor(len);
-	memcpy(bytes, string->data(), len);
-	buf.resize(buf.size() + len);
+	igbinary_serialize_append_bytes(igsd, string->data(), len);
 
 	return 0;
 }
@@ -321,24 +330,135 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 	}
 }
 /* }}} */
-/* {{{ igbinary_serialize_array_ref */
-/** Serializes array reference (or reference in an object). Returns 0 on success. */
-inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object) {
-	auto tv = self.asTypedValue();
-	uintptr_t key = 0;  /* The address of the pointer to the zend_refcounted struct or other struct */
-
-	switch (tv->m_type) {
-		case KindOfPersistentArray:
-		case KindOfArray:
-			key = reinterpret_cast<uintptr_t>(tv->m_data.parr);
-			break;
-		case KindOfRef:
-			key = reinterpret_cast<uintptr_t>(tv->m_data.pref);
-			// TODO ref to objects, check bool object
-			break;
-		default:
-			throw Exception("igbinary_serialize_array_ref expected object, array, or reference, got none of those : DataType=0x%02x", (int) tv->m_type);
+/* {{{ igbinary_serialize_object_name */
+/** Serialize object name. */
+inline static void igbinary_serialize_object_name(struct igbinary_serialize_data *igsd, const StringData* class_name) {
+	// TODO: optimize
+	const auto result = igsd->strings.insert(std::pair<const StringData*, uint32_t>(class_name, (uint32_t)igsd->strings.size()));
+	if (result.second) {  // First time the class name was used as a string.
+		auto name_len = igsd->strings.size();
+		if (name_len <= 0xff) {
+			igbinary_serialize8(igsd, (uint8_t) igbinary_type_object8);
+			igbinary_serialize8(igsd, (uint8_t) name_len TSRMLS_CC);
+		} else if (name_len <= 0xffff) {
+			igbinary_serialize8(igsd, (uint8_t) igbinary_type_object16 TSRMLS_CC);
+			igbinary_serialize16(igsd, (uint16_t) name_len TSRMLS_CC);
+		} else {
+			igbinary_serialize8(igsd, (uint8_t) igbinary_type_object32 TSRMLS_CC);
+			igbinary_serialize32(igsd, (uint32_t) name_len TSRMLS_CC);
+		}
+		igbinary_serialize_append_bytes(igsd, class_name->data(), class_name->size());
+		return;
 	}
+	const uint32_t t = result.first->second;
+	/* already serialized string */
+	if (t <= 0xff) {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_id8);
+		igbinary_serialize8(igsd, (uint8_t) t);
+	} else if (t <= 0xffff) {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_id16);
+		igbinary_serialize16(igsd, (uint16_t) t);
+	} else {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_id32 TSRMLS_CC);
+		igbinary_serialize32(igsd, (uint32_t) t);
+	}
+}
+/* }}} */
+/* {{{ igbinary_serialize_object_serialize_data */
+inline static void igbinary_serialize_object_serialize_data(struct igbinary_serialize_data* igsd, const StrNR& classname, const String& serializedData) {
+	igbinary_serialize_object_name(igsd, classname.get());
+	const size_t serialized_len = serializedData.length();
+	if (serialized_len <= 0xff) {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_ser8);
+		igbinary_serialize8(igsd, (uint8_t) serialized_len TSRMLS_CC);
+	} else if (serialized_len <= 0xffff) {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_ser16);
+		igbinary_serialize16(igsd, (uint16_t) serialized_len TSRMLS_CC);
+	} else if (LIKELY(serialized_len <= 0xffffffffL)) {
+		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_ser32 TSRMLS_CC);
+		igbinary_serialize32(igsd, (uint32_t) serialized_len TSRMLS_CC);
+	} else {
+		throw Exception("igbinary_serialize_object_serialize_data: Data is too long?");
+	}
+
+	igbinary_serialize_append_bytes(igsd, serializedData.data(), serialized_len);
+}
+/* }}} */
+/* {{{ igbinary_serialize_object */
+/** Serialize object.
+ * @see ext/standard/var.c
+ * */
+inline static void igbinary_serialize_object(struct igbinary_serialize_data *igsd, const ObjectData* obj) {
+	if (!obj) {
+		igbinary_serialize_null(igsd);
+		return;
+	}
+
+	const uintptr_t key = reinterpret_cast<uintptr_t>(obj);
+	if (igbinary_serialize_array_ref_by_key(igsd, key, true) == 0) {
+		return;
+	}
+
+	if (obj->isCollection()) {
+		throw Exception("igbinary_serialize_object: Unsupported type isCollection");
+	}
+
+	if (obj->instanceof(SystemLib::s_SerializableClass)) {
+		assert(!obj->isCollection());
+		Variant ret =
+			const_cast<ObjectData*>(obj)->o_invoke_few_args(s_serialize, 0);
+		if (ret.isString()) {
+			igbinary_serialize_object_serialize_data(igsd, obj->getClassName(), ret.toString());
+		} else if (ret.isNull()) {
+			igbinary_serialize_null(igsd);
+		} else {
+			raise_error("%s::serialize() must return a string or NULL",
+						obj->getClassName().data());
+		}
+		return;
+	}
+
+	bool handleSleep = false;
+	auto cls = obj->getVMClass();
+
+	// From serializeObject:
+	// Only serialize CPP extension type instances which can actually
+	// be deserialized.  Otherwise, raise a warning and serialize
+	// null.
+	// Similarly, do not try to serialize WaitHandles
+	// as they contain internal state via non-NativeData means.
+	//
+	// FIXME - don't unserialize other internal objects unless a configure option is provided to allow it.
+	if ((cls->instanceCtor() && !cls->isCppSerializable()) ||
+			obj->getAttribute(ObjectData::IsWaitHandle)) {
+		raise_warning("Attempted to serialize unserializable builtin class %s",
+					  obj->getVMClass()->preClass()->name()->data());
+		igbinary_serialize_null(igsd);
+		return;
+	}
+
+	if (obj->getAttribute(ObjectData::HasNativeData)) {
+		throw Exception("Can't serialize object of class %s with native data?", obj->getClassName().data());
+	}
+	Variant ret;
+	if (obj->getAttribute(ObjectData::HasSleep)) {
+		throw Exception("TODO: Handle __sleep (serializing object of class %s)", obj->getClassName().data());
+		handleSleep = true;
+		ret = const_cast<ObjectData*>(obj)->invokeSleep();
+	}
+
+	if (handleSleep) {
+		throw Exception("igbinary_serialize_object: TODO: Handle __sleep (serializing object of class %s)", obj->getClassName().data());
+		// TODO Equivalent of r = igbinary_serialize_array_sleep(igsd, z, HASH_OF(&h), ce, incomplete_class);
+		// return;
+	}
+
+	throw Exception("igbinary_serialize_object: TODO: Handle serializing objects");
+}
+/* }}} */
+/* {{{ igbinary_serialize_array_ref_by_key */
+inline static int igbinary_serialize_array_ref_by_key(struct igbinary_serialize_data *igsd, const uintptr_t key, bool object) {
+	// Serialize it by a key.
 	uint32_t t = 0;
 	uint32_t *i = &t;
 
@@ -359,18 +479,55 @@ inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *i
 			igbinary_serialize8(igsd, (uint8_t) *i);
 		} else if (*i <= 0xffff) {
 			type = object ? igbinary_type_objref16 : igbinary_type_ref16;
-			igbinary_serialize8(igsd, (uint8_t) type TSRMLS_CC);
+			igbinary_serialize8(igsd, (uint8_t) type);
 			igbinary_serialize16(igsd, (uint16_t) *i);
 		} else {
 			type = object ? igbinary_type_objref32 : igbinary_type_ref32;
-			igbinary_serialize8(igsd, (uint8_t) type TSRMLS_CC);
-			igbinary_serialize32(igsd, (uint32_t) *i TSRMLS_CC);
+			igbinary_serialize8(igsd, (uint8_t) type);
+			igbinary_serialize32(igsd, (uint32_t) *i);
 		}
 
 		return 0;
 	}
 
 	return 1;
+}
+
+/* }}} */
+/* {{{ igbinary_serialize_array_ref */
+/** Serializes array reference (or reference in an object). Returns 0 on success. */
+inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object) {
+	auto tv = self.asTypedValue();
+	uintptr_t key = 0;  /* The address of the pointer to the zend_refcounted struct or other struct */
+
+	// Aside: it's a union, so these are all equivalent.
+	switch (tv->m_type) {
+		case KindOfPersistentArray:
+		case KindOfArray:
+			key = reinterpret_cast<uintptr_t>(tv->m_data.parr);
+			break;
+		case KindOfObject:
+			// TODO: Does this need to use o_id? Probably not.
+			key = reinterpret_cast<uintptr_t>(tv->m_data.pobj);
+			break;
+		case KindOfRef:
+			{
+				RefData* pref = tv->m_data.pref;
+				Variant& self_deref = *pref->var();
+				auto tv_deref = self_deref.asTypedValue();
+				if (tv_deref->m_type == KindOfObject) {
+					// For objects, give the references and non-references the same id. Dereference it.
+					key = reinterpret_cast<uintptr_t>(tv_deref->m_data.pobj);
+				} else {
+					key = reinterpret_cast<uintptr_t>(tv->m_data.pref);
+				}
+			}
+			// TODO ref to objects, check bool object
+			break;
+		default:
+			throw Exception("igbinary_serialize_array_ref expected object, array, or reference, got none of those : DataType=0x%02x", (int) tv->m_type);
+	}
+	return igbinary_serialize_array_ref_by_key(igsd, key, object);
 }
 /* }}} */
 
@@ -386,6 +543,9 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 		case KindOfNull:
 			igbinary_serialize_null(igsd);
 			return;
+		case KindOfResource:
+			igbinary_serialize_null(igsd);  // Can't serialize resources.
+			return;
 		case KindOfBoolean:
 			igbinary_serialize_bool(igsd, tv->m_data.num != 0);
 			return;
@@ -398,6 +558,9 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 		case KindOfString:
 		case KindOfPersistentString:
 			igbinary_serialize_string(igsd, tv->m_data.pstr);
+			return;
+		case KindOfObject:
+			igbinary_serialize_object(igsd, tv->m_data.pobj);
 			return;
 		case KindOfPersistentArray:
 		case KindOfArray:
@@ -417,6 +580,7 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 					}
 				}
 				igbinary_serialize_variant(igsd, self_deref);
+				return;
 			}
 		default:
 			throw Exception("igbinary_serialize_variant: Not implemented yet for DataType 0x%x", (int) tv->m_type);
