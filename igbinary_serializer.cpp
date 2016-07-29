@@ -15,6 +15,7 @@
 #include "hash_ptr.hpp"
 
 #include "hphp/runtime/base/array-iterator.h"
+#include "hphp/runtime/base/builtin-functions.h"
 #include "hphp/runtime/base/string-buffer.h"
 #include "hphp/runtime/base/type-string.h"
 
@@ -443,15 +444,56 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 	}
 	Variant ret;
 	if (obj->getAttribute(ObjectData::HasSleep)) {
-		throw Exception("TODO: Handle __sleep (serializing object of class %s)", obj->getClassName().data());
 		handleSleep = true;
 		ret = const_cast<ObjectData*>(obj)->invokeSleep();
 	}
+    if (obj->getAttribute(ObjectData::HasNativeData)) {
+		throw Exception("TODO: Serializing native data not supported, not compatible with php5 igbinary?");
+	}
 
 	if (handleSleep) {
-		throw Exception("igbinary_serialize_object: TODO: Handle __sleep (serializing object of class %s)", obj->getClassName().data());
-		// TODO Equivalent of r = igbinary_serialize_array_sleep(igsd, z, HASH_OF(&h), ce, incomplete_class);
-		// return;
+		assert(!obj->isCollection());
+		if (!ret.isArray()) {
+			raise_notice("serialize(): __sleep should return an array only "
+                         "containing the names of instance-variables to "
+                         "serialize");
+			igbinary_serialize_null(igsd);
+			return;
+		}
+		const Array &props = ret.asCArrRef();
+        auto const obj_cls = obj->getVMClass();
+        for (ArrayIter iter(props); iter; ++iter) {
+			Class* ctx = obj_cls;
+			const String memberName = iter.second().toString();
+			// const String propName = memberName;
+			if (memberName.data()[0] == 0) {
+				// TODO?
+				throw Exception("igbinary_serialize_data: __sleep returned built in member \"%s\" - this is unsupported", memberName.data());
+			}
+			igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
+			auto const lookup = obj_cls->getDeclPropIndex(ctx, memberName.get());
+			auto const propIdx = lookup.prop;
+			if (propIdx != kInvalidSlot) {
+				if (lookup.accessible) {
+					auto const prop = &obj->propVec()[propIdx];
+					if (prop->m_type != KindOfUninit) {
+						igbinary_serialize_variant(igsd, tvAsCVarRef(prop));
+						continue;
+					}
+				}
+			}
+			if (UNLIKELY(obj->getAttribute(ObjectData::HasDynPropArr))) {
+				const TypedValue* prop = obj->dynPropArray()->nvGet(memberName.get());
+				if (prop) {
+					igbinary_serialize_variant(igsd, tvAsCVarRef(prop));
+					continue;
+				}
+			}
+			raise_notice("igbinary_serialize(): \"%s\" returned as member variable from "
+						 "__sleep() but does not exist", memberName.data());
+			igbinary_serialize_null(igsd);
+		}
+		return;
 	}
 	Array properties = obj->toArray();  // FIXME do names differ by visibility?
 	igbinary_serialize_object_name(igsd, obj->getClassName().get());
