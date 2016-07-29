@@ -570,8 +570,8 @@ inline static void igbinary_unserialize_array(struct igbinary_unserialize_data *
 	}
 
 	v = ArrayInit(n, ArrayInit::Mixed{}).toArray();
-	// Need to add a reference just in case of a duplicate key causing the original variant reference count to be decremented.
-	Array arr = v.toArray();
+	// FIXME: Need to add a reference just in case of a duplicate key causing the original variant reference count to be decremented.
+	Array& arr = v.asArrRef();
 
 	for (size_t i = 0; i < n; i++) {
 		Variant key;

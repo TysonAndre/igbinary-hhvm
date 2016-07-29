@@ -25,6 +25,8 @@ using namespace HPHP;
 namespace{
 
 const StaticString
+	s_zero("\0", 1),
+	s_protected_prefix("\0*\0", 3),
 	s_serialize("serialize");
 
 inline static void igbinary_serialize_variant(struct igbinary_serialize_data *igsd, const Variant& self);
@@ -262,7 +264,7 @@ inline static void igbinary_serialize_array_key(struct igbinary_serialize_data *
 /* }}} */
 
 /* {{{ igbinay_serialize_array */
-/** Serializes array or (TODO?) objects inner properties */
+/** Serializes array or objects inner properties */
 inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd, const Variant& self, bool object) {
 	auto tv = self.asTypedValue();
 	const ArrayData* arr;
@@ -305,7 +307,7 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 		igbinary_serialize8(igsd, igbinary_type_array16);
 		igbinary_serialize16(igsd, n);
 	} else {
-		igbinary_serialize8(igsd, igbinary_type_array8);
+		igbinary_serialize8(igsd, igbinary_type_array32);
 		igbinary_serialize32(igsd, n);
 	}
 
@@ -462,21 +464,41 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 		}
 		const Array &props = ret.asCArrRef();
         auto const obj_cls = obj->getVMClass();
+		igbinary_serialize_object_name(igsd, obj->getClassName().get());
+		const size_t n = props.size();
+		if (n <= 0xff) {
+			igbinary_serialize8(igsd, igbinary_type_array8);
+			igbinary_serialize8(igsd, n);
+		} else if (n <= 0xffff) {
+			igbinary_serialize8(igsd, igbinary_type_array16);
+			igbinary_serialize16(igsd, n);
+		} else if (n <= 0xffffffffL) {
+			igbinary_serialize8(igsd, igbinary_type_array32);
+			igbinary_serialize32(igsd, n);
+		}
         for (ArrayIter iter(props); iter; ++iter) {
 			Class* ctx = obj_cls;
-			const String memberName = iter.second().toString();
+			String memberName = iter.second().toString();
+			String propName = memberName;
 			// const String propName = memberName;
-			if (memberName.data()[0] == 0) {
+			if (memberName.data()[0] == '\0') {
 				// TODO?
 				throw Exception("igbinary_serialize_data: __sleep returned built in member \"%s\" - this is unsupported", memberName.data());
 			}
-			igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
 			auto const lookup = obj_cls->getDeclPropIndex(ctx, memberName.get());
 			auto const propIdx = lookup.prop;
 			if (propIdx != kInvalidSlot) {
 				if (lookup.accessible) {
 					auto const prop = &obj->propVec()[propIdx];
 					if (prop->m_type != KindOfUninit) {
+						auto const attrs = obj_cls->declProperties()[propIdx].attrs;
+						if (attrs & AttrPrivate) {
+							memberName = concat4(s_zero, ctx->nameStr(),
+									s_zero, memberName);
+						} else if (attrs & AttrProtected) {
+							memberName = concat(s_protected_prefix, memberName);
+						}
+						igbinary_serialize_string(igsd, memberName.get());
 						igbinary_serialize_variant(igsd, tvAsCVarRef(prop));
 						continue;
 					}
@@ -485,12 +507,14 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 			if (UNLIKELY(obj->getAttribute(ObjectData::HasDynPropArr))) {
 				const TypedValue* prop = obj->dynPropArray()->nvGet(memberName.get());
 				if (prop) {
+					igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
 					igbinary_serialize_variant(igsd, tvAsCVarRef(prop));
 					continue;
 				}
 			}
 			raise_notice("igbinary_serialize(): \"%s\" returned as member variable from "
 						 "__sleep() but does not exist", memberName.data());
+			igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
 			igbinary_serialize_null(igsd);
 		}
 		return;
