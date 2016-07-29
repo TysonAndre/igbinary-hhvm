@@ -41,6 +41,7 @@ struct igbinary_serialize_data {
 	StringIdMap strings;		/**< Hash of already serialized strings. */
 	struct hash_si_ptr references;	/**< Hash of already serialized potential references. (non-NULL uintptr_t => int32_t) */
 	int references_id;			/**< Number of things that the unserializer might think are references. >= length of references */
+	bool should_throw_exception; /**<Whether or not errors should be thrown as exceptions. */
 };
 
 inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object);
@@ -60,6 +61,7 @@ inline static int igbinary_serialize_data_init(struct igbinary_serialize_data *i
 	}
 
 	igsd->compact_strings = true; /* FIXME allow ini options parsing */
+	igsd->should_throw_exception = false;
 
 	return r;
 }
@@ -431,10 +433,9 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 	// FIXME - don't unserialize other internal objects unless a configure option is provided to allow it.
 	if ((cls->instanceCtor() && !cls->isCppSerializable()) ||
 			obj->getAttribute(ObjectData::IsWaitHandle)) {
-		raise_warning("Attempted to serialize unserializable builtin class %s",
-					  obj->getVMClass()->preClass()->name()->data());
-		igbinary_serialize_null(igsd);
-		return;
+		// Compatibility with php5: Don't unserialize the rest of the properties. Just stop unserializing.
+		igsd->should_throw_exception = true;
+		throw Exception("Attempted to serialize unserializable builtin class %s", obj->getVMClass()->preClass()->name()->data());
 	}
 
 	if (obj->getAttribute(ObjectData::HasNativeData)) {
@@ -591,11 +592,19 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 } // namespace
 
 namespace HPHP {
-String igbinary_serialize(const Variant& variant) {
+Variant igbinary_serialize(const Variant& variant) {
 	struct igbinary_serialize_data igsd;
 	igbinary_serialize_data_init(&igsd, !variant.isObject() && !variant.isArray());
 	igbinary_serialize_header(&igsd);
-	igbinary_serialize_variant(&igsd, variant);  // Succeed or throw
+	try {
+		igbinary_serialize_variant(&igsd, variant);  // Succeed or throw
+	} catch (Exception& e) {
+		if (igsd.should_throw_exception) {  // error is so severe it doesn't just warrant false. (E.g. exception thrown in __sleep(), or in serialize())
+			throw e;
+		}
+		raise_warning(e.getMessage());
+		return false;
+	}
 	return igsd.buffer.detach();
 }
 } // HPHP

@@ -400,7 +400,7 @@ inline static void igbinary_unserialize_object_new_contents(struct igbinary_unse
 	}
 	/* n cannot be larger than the number of minimum "objects" in the array */
 	if (n > igsd->buffer_size - igsd->buffer_offset) {
-		throw Exception("igbinary_unserialize_object_contents: data size %lld smaller that requested array length %lld.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long)n);
+		throw Exception("igbinary_unserialize_object_contents: data size %lld smaller than requested array length %lld.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long)n);
 	}
 	if (obj->get()->isCollection()) {
 		throw Exception("igbinary_unserialize_object_contents: Cannot unserialize HPHP collections");

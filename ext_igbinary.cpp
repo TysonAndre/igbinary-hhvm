@@ -17,12 +17,7 @@
 namespace HPHP {
 
 Variant HHVM_FUNCTION(igbinary_serialize, const Variant &var) {
-	try {
-		return igbinary_serialize(var);
-	} catch (Exception& e) {
-		raise_warning(e.getMessage());
-		return false;
-	}
+	return igbinary_serialize(var);
 }
 
 Variant HHVM_FUNCTION(igbinary_unserialize, const String &serialized) {

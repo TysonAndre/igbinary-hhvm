@@ -77,11 +77,13 @@ enum igbinary_type {
 	/* 25 */ igbinary_type_ref,				/**< Simple reference */
 };
 
+
+
 namespace HPHP {
 /** Return the serialized data, or throw an Exception */
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& result);
 /** Unserialize the data, or clean up and throw an Exception. Effectively constant, unless __sleep modifies something. */
-String igbinary_serialize(const Variant& variant);
+Variant igbinary_serialize(const Variant& variant);
 }
 
 #endif
