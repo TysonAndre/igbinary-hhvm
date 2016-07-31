@@ -3,7 +3,7 @@ igbinary-hhvm
 
 [![Build Status](https://travis-ci.org/TysonAndre/igbinary-hhvm.svg?branch=master)](https://travis-ci.org/TysonAndre/igbinary-hhvm)
 
-(Around 15 tests passing, 38 tests failing)
+(Around 29 tests passing, 24 tests failing)
 
 Native igbinary for HHVM. Not working yet.
 
