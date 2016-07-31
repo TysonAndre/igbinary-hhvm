@@ -14,9 +14,20 @@
 
 #include "ext_igbinary.hpp"
 
+// For HHVM_VERSION_*
+#include "hphp/runtime/version.h"
+
+#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 7)
+#define IGBINARY_OLD_COLLECTIONS_API
+#endif
+
 #include "hphp/runtime/base/array-init.h"
 // for ::HPHP::collections::isType
-#include "hphp/runtime/base/collections.h"
+#ifdef IGBINARY_OLD_COLLECTIONS_API
+# include "hphp/runtime/base/header-kind.h"
+#else
+# include "hphp/runtime/base/collections.h"
+#endif
 #include "hphp/runtime/base/execution-context.h"
 // for req::vector
 #include "hphp/runtime/base/req-containers.h"
@@ -24,6 +35,7 @@
 
 
 using namespace HPHP;
+
 
 #define WANT_CLEAR	 (0)
 #define WANT_REF	   (1<<1)
@@ -465,7 +477,13 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 			// TODO: Make corresponding check when serializing?
 			throw IgbinaryWarning("igbinary_unserialize_object: Unable to completely unserialize internal cpp class");
 		} else {
-			if (UNLIKELY(collections::isType(cls, CollectionType::Pair))) {  // && (size != 2))) {
+			if (UNLIKELY(
+#ifdef IGBINARY_OLD_COLLECTIONS_API
+				(cls == c_Pair::classof)
+#else
+				collections::isType(cls, CollectionType::Pair)
+#endif
+					)) {  // && (size != 2))) {
 				throw IgbinaryWarning("igbinary_unserialize_object: HPHP type Pair unsupported, incompatible with php5/php7 implementation");
 			}
 			switch(t) {

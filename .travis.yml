@@ -20,7 +20,7 @@ install:
 script:
   - hphpize
   - cmake .
-  - make test
+  - make && make test
 
 branches:
   only:
