@@ -588,27 +588,35 @@ inline static void igbinary_unserialize_array(struct igbinary_unserialize_data *
 		throw IgbinaryWarning("igbinary_unserialize_array: data size %llu smaller that requested array length %llu.", (long long)(igsd->buffer_size - igsd->buffer_offset), (long long) n);
 	}
 
-	if (wantRef) {
-		throw IgbinaryWarning("igbinary_unserialize_array: references not implemented yet");
-	}
-
 	igsd->references.push_back(&v);
 	/* empty array */
 	if (n == 0) {
 		v = Array::Create();  // static empty array.
+		if (wantRef) {
+			v.asRef();
+		}
 		return;
 	}
 
 	v = ArrayInit(n, ArrayInit::Mixed{}).toArray();
+
 	// FIXME: Need to add a reference just in case of a duplicate key causing the original variant reference count to be decremented.
-	Array& arr = v.asArrRef();
+	Array* arr;
+	if (wantRef) {
+		v.asRef();
+		auto tv = v.asTypedValue();
+		Variant& v_deref = *tv->m_data.pref->var();
+		arr = &(v_deref.asArrRef());
+	} else {
+		arr = &(v.asArrRef());
+	}
 
 	for (size_t i = 0; i < n; i++) {
 		Variant key;
 		igbinary_unserialize_array_key(igsd, key);
 		// Postcondition: key.isString() || key.isInteger()
 
-		Variant& value = arr.lvalAt(key, AccessFlags::Key);
+		Variant& value = arr->lvalAt(key, AccessFlags::Key);
 		// FIXME: handle case of value already existing? (analogous to putInOverwrittenList)
 
 		// TODO: Any other code for references
