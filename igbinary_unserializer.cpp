@@ -24,7 +24,6 @@
 using namespace HPHP;
 
 #define WANT_CLEAR	 (0)
-#define WANT_OBJECT	(1<<0)
 #define WANT_REF	   (1<<1)
 
 namespace {
@@ -437,8 +436,6 @@ inline static void igbinary_unserialize_object_ser(struct igbinary_unserialize_d
 
 	obj->o_invoke_few_args(s_unserialize, 1, String(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), n, CopyString));
 	obj.get()->clearNoDestruct();  // Allow destructor to be called (???)
-
-	throw IgbinaryWarning("igbinary_unserialize_object_ser: TODO support igbinary_type_object_ser* %02x", (int)t);
 }
 
 /** Unserialize object, store into v. */
@@ -561,8 +558,7 @@ static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Vari
 /* {{{ igbinary_unserialize_array */
 /** Unserializes array. */
 inline static void igbinary_unserialize_array(struct igbinary_unserialize_data *igsd, enum igbinary_type t, Variant& v, bool wantRef) {
-	/* WANT_OBJECT means that z will be an object (if dereferenced) - TODO implement or refactor. */
-	/* WANT_REF means that z will be wrapped by an IS_REFERENCE */
+	/* wantRef means that z will be wrapped by an IS_REFERENCE */
 	size_t n;
 	if (t == igbinary_type_array8) {
 		if (igsd->buffer_offset + 1 > igsd->buffer_size) {
@@ -659,7 +655,7 @@ static void igbinary_unserialize_ref(igbinary_unserialize_data *igsd, enum igbin
 			v.asRef();
 			data = &v;
 		} else {
-			v.assignRefHelper(v);
+			v.assignRefHelper(*data);
 		}
 	} else {
 		// Copy underlying data of ref or non-ref. Deletes old data?
