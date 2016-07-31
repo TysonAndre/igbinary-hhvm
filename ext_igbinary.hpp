@@ -17,8 +17,9 @@
 #define TSRMLS_DC
 #define TSRMLS_CC
 
-#include "hphp/runtime/ext/extension.h"
+#include "hphp/util/exception.h"
 #include "hphp/util/portability.h"
+#include "hphp/runtime/base/type-variant.h"
 
 #define IGBINARY_FORMAT_VERSION 0x00000002
 

@@ -11,8 +11,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ext_igbinary.hpp"
 #include "hash_ptr.hpp"
+// For HHVM_VERSION_*
+#include "hphp/runtime/version.h"
 
 
 #if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 10)
@@ -32,7 +33,9 @@
 #undef protected
 #endif
 
-// Includes type-object.h through type-variant.h, so this is placed below that block.
+// Includes type-object.h through type-variant.h, so these headers are placed below that block.
+#include "ext_igbinary.hpp"
+
 #include "hphp/runtime/base/builtin-functions.h"
 
 

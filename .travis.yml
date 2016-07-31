@@ -19,7 +19,6 @@ install:
   - hhvm --version
 
 script:
-  - ls -la /usr/bin
   - hphpize
   - cmake .
   - make test
