@@ -19,6 +19,8 @@
 #include "hphp/runtime/base/string-buffer.h"
 #include "hphp/runtime/base/type-string.h"
 
+#include "hphp/system/systemlib.h"
+
 
 using namespace HPHP;
 
@@ -637,6 +639,7 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 		case KindOfRef:
 			{
 				Variant& self_deref = *tv->m_data.pref->var();
+				igbinary_serialize8(igsd, (uint8_t) igbinary_type_ref);
 				if (self_deref.isArray()) {
 					igbinary_serialize_array(igsd, self, false);
 					return;
@@ -648,8 +651,8 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 					}
 				}
 				igbinary_serialize_variant(igsd, self_deref);
-				return;
 			}
+			return;
 		default:
 			throw Exception("igbinary_serialize_variant: Not implemented yet for DataType 0x%x", (int) tv->m_type);
 	}
@@ -666,7 +669,7 @@ Variant igbinary_serialize(const Variant& variant) {
 		igbinary_serialize_variant(&igsd, variant);  // Succeed or throw
 	} catch (Exception& e) {
 		if (igsd.should_throw_exception) {  // error is so severe it doesn't just warrant false. (E.g. exception thrown in __sleep(), or in serialize())
-			throw e;
+			SystemLib::throwExceptionObject(e.getMessage());
 		}
 		raise_warning(e.getMessage());
 		return false;

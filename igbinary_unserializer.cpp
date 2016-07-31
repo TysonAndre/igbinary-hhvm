@@ -15,6 +15,7 @@
 #include "ext_igbinary.hpp"
 
 #include "hphp/runtime/base/array-init.h"
+#include "hphp/runtime/base/type-variant.h"
 
 using namespace HPHP;
 
@@ -613,11 +614,19 @@ static void igbinary_unserialize_ref(igbinary_unserialize_data *igsd, enum igbin
 		throw Exception("igbinary_unserialize_ref: invalid reference %u >= %u", (int) n, (int)igsd->references.size());
 	}
 
+	Variant*& data = igsd->references[n];
+
 	if ((flags & WANT_REF) != 0) {
-		// replace reference
-		throw Exception("igbinary_unserialize_ref FIXME handle refs");
+		if (data->getRawType() != KindOfRef) {
+			v = *data;
+			v.asRef();
+			data = &v;
+		} else {
+			v.assignRefHelper(v);
+		}
 	} else {
-		Variant::AssignValHelper(&v, igsd->references[n]);
+		// Copy underlying data of ref or non-ref. Deletes old data?
+		v.constructValHelper(*data);
 	}
 
 
@@ -633,6 +642,30 @@ static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Varian
 	}
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 	switch (t) {
+		case igbinary_type_ref:
+			{
+				igbinary_unserialize_variant(igsd, v, WANT_REF);
+				const DataType type = v.getRawType();
+				/* If it is already a ref, nothing to do */
+				if (type == KindOfRef) {
+					break;
+				}
+				switch (type) {
+					case KindOfString:
+					case KindOfInt64:
+					case KindOfNull:
+					case KindOfDouble:
+					case KindOfBoolean:
+						igsd->references.push_back(&v);
+						break;
+					default:
+						break;
+				}
+
+				/* Convert v to a ref */
+				v.asRef();
+			}
+			break;
 		case igbinary_type_objref8:
 		case igbinary_type_objref16:
 		case igbinary_type_objref32:
@@ -706,11 +739,15 @@ namespace HPHP {
 
 /** Unserialize the data, or clean up and throw an Exception. Effectively constant, unless __sleep modifies something. */
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& v) {
-	igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
+	try {
+		igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
 
-	igbinary_unserialize_header(&igsd);  // Unserialize header or throw exception.
-	igbinary_unserialize_variant(&igsd, v, WANT_CLEAR);
-	/* FIXME finish_wakeup */
+		igbinary_unserialize_header(&igsd);  // Unserialize header or throw exception.
+		igbinary_unserialize_variant(&igsd, v, WANT_CLEAR);
+		/* FIXME finish_wakeup */
+	} catch (Exception& e) {
+		raise_warning(e.getMessage());
+	}
 }
 
 } // namespace HPHP
