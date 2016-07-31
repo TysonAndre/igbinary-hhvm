@@ -20,7 +20,6 @@
 #define IGBINARY_OLD_OBJECT_PROPERTIES_API
 #endif
 
-#include "hphp/runtime/base/array-iterator.h"
 #include "hphp/runtime/base/string-buffer.h"
 #include "hphp/runtime/base/type-string.h"
 
@@ -36,6 +35,7 @@
 // Includes type-object.h through type-variant.h, so these headers are placed below that block.
 #include "ext_igbinary.hpp"
 
+#include "hphp/runtime/base/array-iterator.h"
 #include "hphp/runtime/base/builtin-functions.h"
 
 
