@@ -18,8 +18,11 @@
 #define TSRMLS_CC
 
 #include "hphp/runtime/ext/extension.h"
+#include "hphp/util/portability.h"
 
 #define IGBINARY_FORMAT_VERSION 0x00000002
+
+namespace HPHP {
 
 /* {{{ Types */
 enum igbinary_type {
@@ -77,9 +80,12 @@ enum igbinary_type {
 	/* 25 */ igbinary_type_ref,				/**< Simple reference */
 };
 
+class IgbinaryWarning : public Exception {
+  public:
+	IgbinaryWarning(const char* fmt, ...) ATTRIBUTE_PRINTF(2,3);
+};
 
-
-namespace HPHP {
+void throw_igbinary_exception(const char* fmt, ...) ATTRIBUTE_PRINTF(1,2);
 /** Return the serialized data, or throw an Exception */
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& result);
 /** Unserialize the data, or clean up and throw an Exception. Effectively constant, unless __sleep modifies something. */

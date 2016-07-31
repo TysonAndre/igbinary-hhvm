@@ -46,7 +46,6 @@ struct igbinary_serialize_data {
 	StringIdMap strings;		/**< Hash of already serialized strings. */
 	struct hash_si_ptr references;	/**< Hash of already serialized potential references. (non-NULL uintptr_t => int32_t) */
 	int references_id;			/**< Number of things that the unserializer might think are references. >= length of references */
-	bool should_throw_exception; /**<Whether or not errors should be thrown as exceptions. */
 };
 
 inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *igsd, const Variant& self, bool object);
@@ -66,7 +65,6 @@ inline static int igbinary_serialize_data_init(struct igbinary_serialize_data *i
 	}
 
 	igsd->compact_strings = true; /* FIXME allow ini options parsing */
-	igsd->should_throw_exception = false;
 
 	return r;
 }
@@ -202,7 +200,7 @@ inline static int igbinary_serialize_chararray(struct igbinary_serialize_data *i
 		igbinary_serialize8(igsd, igbinary_type_string32);
 		igbinary_serialize32(igsd, len);
 	} else {
-		throw Exception("igbinary_serialize_chararray: Too long for other igbinary v2 implementations to parse");
+		throw IgbinaryWarning("igbinary_serialize_chararray: Too long for other igbinary v2 implementations to parse");
 	}
 
 	igbinary_serialize_append_bytes(igsd, string->data(), len);
@@ -260,7 +258,7 @@ inline static void igbinary_serialize_array_key(struct igbinary_serialize_data *
 			igbinary_serialize_string(igsd, tv->m_data.pstr);
 			return;
 		default:
-			throw Exception("igbinary_serialize_array_key: Did not expect to get DataType 0x%x", (int) tv->m_type);
+			throw IgbinaryWarning("igbinary_serialize_array_key: Did not expect to get DataType 0x%x", (int) tv->m_type);
 	}
 }
 /* }}} */
@@ -287,12 +285,12 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 						arr = tv_deref->m_data.parr;
 						break;
 					default:
-						throw Exception("igbinary_serialize_array: Did not expect to get ref to DataType 0x%x", (int) tv->m_type);
+						throw IgbinaryWarning("igbinary_serialize_array: Did not expect to get ref to DataType 0x%x", (int) tv->m_type);
 				}
 			}
 			break;
 		default:
-			throw Exception("igbinary_serialize_array: Did not expect to get DataType 0x%x", (int) tv->m_type);
+			throw IgbinaryWarning("igbinary_serialize_array: Did not expect to get DataType 0x%x", (int) tv->m_type);
 	}
 	size_t n = arr->size();
 
@@ -319,13 +317,13 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 	if (arr->isVecArray()) {
 		// it wouldn't be unserializable by php5 and php7.
 		// Maybe igbinary_keyset, igbinary_vecarray for those, or SPL....
-		throw new Exception("igbinary_serialize_array: Unable to handle case of isVecArray");
+		throw new IgbinaryWarning("igbinary_serialize_array: Unable to handle case of isVecArray");
 #if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 15)
 	} else if (arr->isKeyset()) {
 		// TODO find exact patch version(s)?
 		// it wouldn't be unserializable by php5 and php7.
 		// Maybe igbinary_keyset, igbinary_vecarray for those, or SPL....
-		throw new Exception("igbinary_serialize_array: Unable to handle case of isKeyset");
+		throw new IgbinaryWarning("igbinary_serialize_array: Unable to handle case of isKeyset");
 
 #endif
 	} else {
@@ -385,7 +383,7 @@ inline static void igbinary_serialize_object_serialize_data(struct igbinary_seri
 		igbinary_serialize8(igsd, (uint8_t) igbinary_type_object_ser32 TSRMLS_CC);
 		igbinary_serialize32(igsd, (uint32_t) serialized_len TSRMLS_CC);
 	} else {
-		throw Exception("igbinary_serialize_object_serialize_data: Data is too long?");
+		throw IgbinaryWarning("igbinary_serialize_object_serialize_data: Data is too long?");
 	}
 
 	igbinary_serialize_append_bytes(igsd, serializedData.data(), serialized_len);
@@ -407,7 +405,7 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 	}
 
 	if (obj->isCollection()) {
-		throw Exception("igbinary_serialize_object: Unsupported type isCollection");
+		throw IgbinaryWarning("igbinary_serialize_object: Unsupported type isCollection");
 	}
 
 	if (obj->instanceof(SystemLib::s_SerializableClass)) {
@@ -439,12 +437,11 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 	if ((cls->instanceCtor() && !cls->isCppSerializable()) ||
 			obj->getAttribute(ObjectData::IsWaitHandle)) {
 		// Compatibility with php5: Don't unserialize the rest of the properties. Just stop unserializing.
-		igsd->should_throw_exception = true;
-		throw Exception("Attempted to serialize unserializable builtin class %s", obj->getVMClass()->preClass()->name()->data());
+		throw_igbinary_exception("Attempted to serialize unserializable builtin class %s", obj->getVMClass()->preClass()->name()->data());
 	}
 
 	if (obj->getAttribute(ObjectData::HasNativeData)) {
-		throw Exception("Can't serialize object of class %s with native data?", obj->getClassName().data());
+		throw IgbinaryWarning("Can't serialize object of class %s with native data?", obj->getClassName().data());
 	}
 	Variant ret;
 	if (obj->getAttribute(ObjectData::HasSleep)) {
@@ -452,7 +449,7 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 		ret = const_cast<ObjectData*>(obj)->invokeSleep();
 	}
     if (obj->getAttribute(ObjectData::HasNativeData)) {
-		throw Exception("TODO: Serializing native data not supported, not compatible with php5 igbinary?");
+		throw IgbinaryWarning("TODO: Serializing native data not supported, not compatible with php5 igbinary?");
 	}
 
 	if (handleSleep) {
@@ -484,8 +481,8 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 			String propName = memberName;
 			// const String propName = memberName;
 			if (memberName.data()[0] == '\0') {
-				// TODO?
-				throw Exception("igbinary_serialize_data: __sleep returned built in member \"%s\" - this is unsupported", memberName.data());
+				// TODO (Probably easy, but should probably also be done in php?)
+				throw IgbinaryWarning("igbinary_serialize_data: __sleep returned built in member \"%s\" - this is unsupported", memberName.data());
 			}
 			auto const lookup = obj_cls->getDeclPropIndex(ctx, memberName.get());
 			auto const propIdx = lookup.prop;
@@ -595,7 +592,7 @@ inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *i
 			// TODO ref to objects, check bool object
 			break;
 		default:
-			throw Exception("igbinary_serialize_array_ref expected object, array, or reference, got none of those : DataType=0x%02x", (int) tv->m_type);
+			throw IgbinaryWarning("igbinary_serialize_array_ref expected object, array, or reference, got none of those : DataType=0x%02x", (int) tv->m_type);
 	}
 	return igbinary_serialize_array_ref_by_key(igsd, key, object);
 }
@@ -654,7 +651,7 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 			}
 			return;
 		default:
-			throw Exception("igbinary_serialize_variant: Not implemented yet for DataType 0x%x", (int) tv->m_type);
+			throw IgbinaryWarning("igbinary_serialize_variant: Not implemented yet for DataType 0x%x", (int) tv->m_type);
 	}
 }
 /* }}} */
@@ -667,10 +664,7 @@ Variant igbinary_serialize(const Variant& variant) {
 	igbinary_serialize_header(&igsd);
 	try {
 		igbinary_serialize_variant(&igsd, variant);  // Succeed or throw
-	} catch (Exception& e) {
-		if (igsd.should_throw_exception) {  // error is so severe it doesn't just warrant false. (E.g. exception thrown in __sleep(), or in serialize())
-			SystemLib::throwExceptionObject(e.getMessage());
-		}
+	} catch (IgbinaryWarning& e) {
 		raise_warning(e.getMessage());
 		return false;
 	}
