@@ -1,0 +1,33 @@
+# See https://docs.travis-ci.com/user/languages/php
+
+# travis.yml based on https://github.com/reeze/msgpack-hhvm/blob/master/.travis.yml
+
+language: php
+sudo: required
+dist: trusty
+group: edge 
+
+# TODO:
+#- hhvm-3.3
+#- hhvm-3.6
+php:
+  - hhvm-3.9
+  - hhvm-3.12
+
+install:
+  - sudo apt-get install cmake hhvm-dev
+  - hhvm --version
+
+script:
+  - ls -la /usr/bin
+  - hphpize
+  - cmake .
+  - make
+  - make test
+
+branches:
+  only:
+    - master
+
+notifications:
+ email: false

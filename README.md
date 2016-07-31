@@ -1,15 +1,28 @@
 igbinary-hhvm
 ============
 
-Build Status: 15 tests passing, 38 tests failing
+[![Build Status](https://travis-ci.org/TysonAndre/igbinary-hhvm.svg?branch=master)](https://travis-ci.org/TysonAndre/igbinary-hhvm)
+
+(Around 15 tests passing, 38 tests failing)
 
 Native igbinary for HHVM. Not working yet.
 
 # Functionality
 
-So far, `igbinary_unserialize(igbinary_serialize(NULL)) === NULL` works. Other data types aren't implemented yet.
+So far, the following work:
 
-Only `igbinary_serialize` and `igbinary_unserialize` are supported.
+- Scalars(Strings, Booleans, numbers)
+- Arrays of scalars
+
+The following need more work:
+
+- Objects
+- Arrays/Objects containing duplicate values
+- Cyclic data structures
+- References are still unsupported
+- Objects with magic methods (`serialize`,`unserialize`,`__sleep`,`__wakeup`)
+- Integration with libraries using igbinary
+
 External integration, such as with APC, Memcached, Redis, etc. won't work.
 References may take a while to do properly.
 
