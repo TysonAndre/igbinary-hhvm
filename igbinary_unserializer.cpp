@@ -17,6 +17,9 @@
 #include "hphp/runtime/base/array-init.h"
 #include "hphp/runtime/base/type-variant.h"
 
+// for req::vector
+#include "hphp/runtime/base/req-containers.h"
+
 using namespace HPHP;
 
 #define WANT_CLEAR	 (0)
@@ -42,8 +45,10 @@ struct igbinary_unserialize_data {
 	const size_t buffer_size;		/**< Buffer size. */
 	size_t buffer_offset;			/**< Current read offset. */
 
+	// TODO: use req::vector instead?
 	std::vector<String> strings;	/**< Unserialized strings. */
 	std::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
+	req::vector<Object> wakeup;    /* objects for which to call __wakeup after unserialization is finished */
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
@@ -53,7 +58,7 @@ igbinary_unserialize_data::igbinary_unserialize_data(const uint8_t* buf, size_t 
 
 igbinary_unserialize_data::~igbinary_unserialize_data() {
 	// Nothing to do for strings or references
-	// TODO: Decrement reference counts for wakeup() for any remaining entries in the wakeup list, once wakeup list is created.
+	// req::vector<Object> wakeup automatically handles reference counts?
 }
 
 /* }}} */
@@ -87,27 +92,11 @@ static void igbinary_unserialize_variant(struct igbinary_unserialize_data *igsd,
 */
 /* }}} */
 
-/*
-static inline int igsd_defer_wakeup(struct igbinary_unserialize_data *igsd, Variant* v) {
-	// TODO: Increment ref count of v
-	if (igsd->wakeup_count >= igsd->wakeup_capacity) {
-		if (igsd->wakeup_capacity == 0) {
-			igsd->wakeup_capacity = 2;
-			igsd->wakeup = emalloc(sizeof(igsd->wakeup[0]) * igsd->wakeup_capacity);
-		} else {
-			igsd->wakeup_capacity *= 2;
-			igsd->wakeup = erealloc(igsd->wakeup, sizeof(igsd->wakeup[0]) * igsd->wakeup_capacity);
-			if (igsd->wakeup == NULL) {
-				return 1;
-			}
-		}
-	}
-
-	ZVAL_COPY(&igsd->wakeup[igsd->wakeup_count], z);
-	igsd->wakeup_count++;
-	return 0;
+/* {{{ igsd_defer_wakeup */
+/* Defer wakeup */
+static inline void igsd_defer_wakeup(struct igbinary_unserialize_data *igsd, const Object& o) {
+	igsd->wakeup.emplace_back(o);
 }
-*/
 /* }}} */
 
 /* {{{ igbinary_unserialize8 */
@@ -447,6 +436,11 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 		obj->o_set(s_PHP_Incomplete_Class_Name, class_name);
 	}
 
+	v = obj;
+	if (flags & WANT_REF) {
+		v.asRef();
+	}
+
 	// FIXME custom unserializer?
 
 	/* add this to the list of unserialized references, get the index */
@@ -485,7 +479,7 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 	}
 
 	if (cls && cls->lookupMethod(s___wakeup.get())) {
-		throw Exception("igbinary_unserialize_object: TODO: Defer __wakeup and increment ref counts if object implements __wakeup");
+		igsd_defer_wakeup(igsd, obj);
 	}
 }
 /* }}} */
@@ -739,14 +733,18 @@ namespace HPHP {
 
 /** Unserialize the data, or clean up and throw an Exception. Effectively constant, unless __sleep modifies something. */
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& v) {
+	igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
 	try {
-		igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
 
 		igbinary_unserialize_header(&igsd);  // Unserialize header or throw exception.
 		igbinary_unserialize_variant(&igsd, v, WANT_CLEAR);
 		/* FIXME finish_wakeup */
 	} catch (Exception& e) {
 		raise_warning(e.getMessage());
+		return;
+	}
+	for (auto& obj : igsd.wakeup) {
+		obj->invokeWakeup();
 	}
 }
 
