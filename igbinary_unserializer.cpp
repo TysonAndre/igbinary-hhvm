@@ -97,7 +97,7 @@ igbinary_unserialize_data::~igbinary_unserialize_data() {
 /* }}} */
 
 static void igbinary_unserialize_variant(igbinary_unserialize_data *igsd, Variant& v, int flags);
-static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v);
+static bool igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v);
 
 /* {{{ Unserializing functions prototypes */
 /*
@@ -328,20 +328,25 @@ inline static const String& igbinary_unserialize_string(struct igbinary_unserial
 /* }}} */
 /* {{{ igbinary_unserialize_object_prop */
 /* Similar to unserializeProp. nProp is the number of remaining dynamic properties. */
-inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *igsd, ObjectData* obj, const String& key, int nProp) {
+inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *igsd, ObjectData* obj, const Variant& key, int nProp) {
 	// Do a two-step look up
 	// FIXME not sure how protected variables are handled in igbinary in php5. Try to imitate that.
 	// For now, assume it can be from the class or any parent class.
-	auto const lookup = obj->getProp(nullptr, key.get());
 	Variant* t;
-
-	if (!lookup.prop || !lookup.accessible) {
-		// Dynamic property. If this is the first, and we're using MixedArray,
-		// we need to pre-allocate space in the array to ensure the elements
-		// dont move during unserialization.
+	if (UNLIKELY(key.isInteger())) {
+		// Integer keys are guaranteed to be dynamic properties.
 		t = &obj->reserveProperties(nProp).lvalAt(key, AccessFlags::Key);
 	} else {
-		t = &tvAsVariant(lookup.prop);
+		const String strKey = key.toString();
+		auto const lookup = obj->getProp(nullptr, strKey.get());
+		if (!lookup.prop || !lookup.accessible) {
+			// Dynamic property. If this is the first, and we're using MixedArray,
+			// we need to pre-allocate space in the array to ensure the elements
+			// dont move during unserialization.
+			t = &obj->reserveProperties(nProp).lvalAt(strKey, AccessFlags::Key);
+		} else {
+			t = &tvAsVariant(lookup.prop);
+		}
 	}
 
 	if (UNLIKELY(isRefcountedType(t->getRawType()))) {
@@ -382,18 +387,18 @@ inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *i
  * TODO: Pass this a list.
  */
 inline static void igbinary_unserialize_object_new_contents_leftover(struct igbinary_unserialize_data* igsd, enum igbinary_type t, Object* obj, int n) {
-	int remainingProps = n;
 	//Class* objCls = obj->getVMClass();
-	while (remainingProps > 0) {
+	for (int remainingProps = n; remainingProps > 0; --remainingProps) {
 		/*
 			use the number of properties remaining as an estimate for
 			the total number of dynamic properties when we see the
 			first dynamic prop.	see getVariantPtr
 		*/
 		Variant v;
-		igbinary_unserialize_array_key(igsd, v);
-		String key = v.toString();
-		igbinary_unserialize_object_prop(igsd, obj->get(), key, remainingProps--);
+		if (!igbinary_unserialize_array_key(igsd, v)) {
+			continue;
+		}
+		igbinary_unserialize_object_prop(igsd, obj->get(), v, remainingProps);
 	}
 }
 /* }}} */
@@ -483,6 +488,9 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 	}
 
 	// Unserialize the inner type (The byte after the class name).
+	if (igsd->buffer_offset + 1 > igsd->buffer_size) {
+		throw IgbinaryWarning("igbinary_unserialize_object: end-of-data");
+	}
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 
 	Class* cls = Unit::loadClass(class_name.get());  // with autoloading
@@ -554,12 +562,18 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 	}
 }
 /* }}} */
-/* Unserialize an array key (int64 or string). Postcondition: v.isInteger() || v.isString(), or Exception thrown. See igbinary_unserialize_variant. */
-static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v) {
+/* {{{ igbinary_unserialize_array_key */
+/**
+ * Unserialize an array key (int64 or string).
+ * Postcondition: v.isInteger() || v.isString() || return value is false, or IgbinaryWarning thrown.
+ * See igbinary_unserialize_variant.
+ * (The return false if the serializer needs to indicate that the serialized entry was skipped)
+ */
+static bool igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Variant& v) {
 	enum igbinary_type t;
 
 	if (igsd->buffer_offset + 1 > igsd->buffer_size) {
-		throw IgbinaryWarning("igbinary_unserialize_variant: end-of-data");
+		throw IgbinaryWarning("igbinary_unserialize_array_key: end-of-data");
 	}
 	t = (enum igbinary_type) igbinary_unserialize8(igsd);
 	switch (t) {
@@ -569,7 +583,7 @@ static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Vari
 				// TODO: Make a constant?
 				tvMove(make_tv<KindOfString>(s.detach()), *v.asTypedValue());
 			}
-			break;
+			return true;
 		case igbinary_type_long8p:
 		case igbinary_type_long8n:
 		case igbinary_type_long16p:
@@ -579,20 +593,23 @@ static void igbinary_unserialize_array_key(igbinary_unserialize_data *igsd, Vari
 		case igbinary_type_long64p:
 		case igbinary_type_long64n:
 			v = igbinary_unserialize_long(igsd, t);
-			break;
+			return true;
 		case igbinary_type_string8:
 		case igbinary_type_string16:
 		case igbinary_type_string32:
 			v = igbinary_unserialize_chararray(igsd, t);
-			break;
+			return true;
 		case igbinary_type_string_id8:
 		case igbinary_type_string_id16:
 		case igbinary_type_string_id32:
 			v = igbinary_unserialize_string(igsd, t);
-			break;
+			return true;
+		case igbinary_type_null:
+			return false;
 		default:
 			throw IgbinaryWarning("igbinary_unserialize_array_key: Unexpected igbinary_type 0x%02x at offset %lld", (int) t, (long long) igsd->buffer_offset);
 	}
+	return true;
 }
 /* {{{ igbinary_unserialize_array */
 /** Unserializes array. */
@@ -648,7 +665,9 @@ inline static void igbinary_unserialize_array(struct igbinary_unserialize_data *
 
 	for (size_t i = 0; i < n; i++) {
 		Variant key;
-		igbinary_unserialize_array_key(igsd, key);
+		if (!igbinary_unserialize_array_key(igsd, key)) {
+			continue;
+		}
 		// Postcondition: key.isString() || key.isInteger()
 
 		Variant& value = arr->lvalAt(key, AccessFlags::Key);

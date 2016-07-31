@@ -506,7 +506,16 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 		}
         for (ArrayIter iter(props); iter; ++iter) {
 			Class* ctx = obj_cls;
-			String memberName = iter.second().toString();
+			const Variant& memberKey = iter.second();
+			if (UNLIKELY(!memberKey.isString())) {
+				// __sleep doesn't support integers in php5 implementation. Print a notice and skip it.
+				raise_warning("__sleep should return an array only "
+					"containing the names of instance-variables to "
+					"serialize, got %d", (int)memberKey.getType());
+				igbinary_serialize_null(igsd);
+				return;
+			}
+			String memberName = memberKey.toString();
 			String propName = memberName;
 			// const String propName = memberName;
 			if (memberName.data()[0] == '\0') {
@@ -545,7 +554,8 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 				}
 			}
 			raise_notice("igbinary_serialize(): \"%s\" returned as member variable from "
-						 "__sleep() but does not exist", memberName.data());
+						 "__sleep() but does not exist", propName.data());
+			// Note: Serialize null as both
 			igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
 			igbinary_serialize_null(igsd);
 		}
