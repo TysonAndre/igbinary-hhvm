@@ -21,16 +21,29 @@
 #define IGBINARY_OLD_COLLECTIONS_API
 #endif
 
+#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 8)
+#define IGBINARY_OLD_CONTAINERS_API
+#endif
+
 #include "hphp/runtime/base/array-init.h"
 // for ::HPHP::collections::isType
 #ifdef IGBINARY_OLD_COLLECTIONS_API
-# include "hphp/runtime/base/header-kind.h"
+# if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 6)
+#  include "hphp/runtime/ext/ext_collections.h"
+# else
+#  include "hphp/runtime/base/header-kind.h"
+# endif
 #else
 # include "hphp/runtime/base/collections.h"
 #endif
 #include "hphp/runtime/base/execution-context.h"
 // for req::vector
-#include "hphp/runtime/base/req-containers.h"
+
+#ifdef IGBINARY_OLD_CONTAINERS_API
+# include "hphp/runtime/base/smart-containers.h"
+#else
+# include "hphp/runtime/base/req-containers.h"
+#endif
 #include "hphp/runtime/base/type-variant.h"
 
 
@@ -59,10 +72,16 @@ struct igbinary_unserialize_data {
 	const size_t buffer_size;		/**< Buffer size. */
 	size_t buffer_offset;			/**< Current read offset. */
 
-	// TODO: use req::vector instead?
-	std::vector<String> strings;	/**< Unserialized strings. */
-	std::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
+	// Containers using thread-local memory.
+#ifdef IGBINARY_OLD_CONTAINERS_API
+# define req smart
+#endif
+	req::vector<String> strings;	/**< Unserialized strings. */
+	req::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
 	req::vector<Object> wakeup;    /* objects for which to call __wakeup after unserialization is finished */
+#ifdef IGBINARY_OLD_CONTAINERS_API
+# undef req
+#endif
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
