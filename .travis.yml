@@ -22,7 +22,6 @@ script:
   - ls -la /usr/bin
   - hphpize
   - cmake .
-  - make
   - make test
 
 branches:

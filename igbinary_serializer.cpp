@@ -254,7 +254,9 @@ inline static void igbinary_serialize_array_key(struct igbinary_serialize_data *
 			igbinary_serialize_int64(igsd, tv->m_data.num);
 			return;
 		case KindOfString:
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 12)
 		case KindOfPersistentString:
+#endif
 			igbinary_serialize_string(igsd, tv->m_data.pstr);
 			return;
 		default:
@@ -270,7 +272,9 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 	const ArrayData* arr;
 
 	switch (tv->m_type) {
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 11)
 		case KindOfPersistentArray:
+#endif
 		case KindOfArray:
 			arr = tv->m_data.parr;
 			break;
@@ -280,7 +284,9 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 				auto tv_deref = self_deref.asTypedValue();
 
 				switch (tv_deref->m_type) {
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 11)
 					case KindOfPersistentArray:
+#endif
 					case KindOfArray:
 						arr = tv_deref->m_data.parr;
 						break;
@@ -314,10 +320,13 @@ inline static void igbinary_serialize_array(struct igbinary_serialize_data *igsd
 	if (n == 0) {
 		return;
 	}
-	if (arr->isVecArray()) {
+	if (false) {
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 14)
+	} else if (arr->isVecArray()) {
 		// it wouldn't be unserializable by php5 and php7.
 		// Maybe igbinary_keyset, igbinary_vecarray for those, or SPL....
 		throw new IgbinaryWarning("igbinary_serialize_array: Unable to handle case of isVecArray");
+#endif
 #if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 15)
 	} else if (arr->isKeyset()) {
 		// TODO find exact patch version(s)?
@@ -569,7 +578,9 @@ inline static int igbinary_serialize_array_ref(struct igbinary_serialize_data *i
 
 	// Aside: it's a union, so these are all equivalent.
 	switch (tv->m_type) {
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 11)
 		case KindOfPersistentArray:
+#endif
 		case KindOfArray:
 			key = reinterpret_cast<uintptr_t>(tv->m_data.parr);
 			break;
@@ -623,13 +634,17 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 			igbinary_serialize_double(igsd, tv->m_data.dbl);
 			return;
 		case KindOfString:
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 12)
 		case KindOfPersistentString:
+#endif
 			igbinary_serialize_string(igsd, tv->m_data.pstr);
 			return;
 		case KindOfObject:
 			igbinary_serialize_object(igsd, tv->m_data.pobj);
 			return;
+#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 11)
 		case KindOfPersistentArray:
+#endif
 		case KindOfArray:
 			igbinary_serialize_array(igsd, self, false);
 			return;
