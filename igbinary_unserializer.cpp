@@ -15,6 +15,8 @@
 #include "ext_igbinary.hpp"
 
 #include "hphp/runtime/base/array-init.h"
+// for ::HPHP::collections::isType
+#include "hphp/runtime/base/collections.h"
 #include "hphp/runtime/base/execution-context.h"
 // for req::vector
 #include "hphp/runtime/base/req-containers.h"

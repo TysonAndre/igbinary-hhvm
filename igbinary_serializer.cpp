@@ -14,10 +14,27 @@
 #include "ext_igbinary.hpp"
 #include "hash_ptr.hpp"
 
+
+#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 10)
+#define IGBINARY_OLD_OBJECT_PROPERTIES_API
+#endif
+
 #include "hphp/runtime/base/array-iterator.h"
-#include "hphp/runtime/base/builtin-functions.h"
 #include "hphp/runtime/base/string-buffer.h"
 #include "hphp/runtime/base/type-string.h"
+
+#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
+// Workaround to call ObjectData->propVec(). Should not be necessary for other methods.
+#define protected public
+#endif
+#include "hphp/runtime/base/type-object.h"
+#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
+#undef protected
+#endif
+
+// Includes type-object.h through type-variant.h, so this is placed below that block.
+#include "hphp/runtime/base/builtin-functions.h"
+
 
 #include "hphp/system/systemlib.h"
 
@@ -499,7 +516,11 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 				if (lookup.accessible) {
 					auto const prop = &obj->propVec()[propIdx];
 					if (prop->m_type != KindOfUninit) {
+#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
+						auto const attrs = obj_cls->declProperties()[propIdx].m_attrs;
+#else
 						auto const attrs = obj_cls->declProperties()[propIdx].attrs;
+#endif
 						if (attrs & AttrPrivate) {
 							memberName = concat4(s_zero, ctx->nameStr(),
 									s_zero, memberName);
