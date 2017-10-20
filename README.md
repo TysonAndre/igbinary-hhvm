@@ -5,7 +5,7 @@ Requirements: HHVM >= 3.22
 
 [![Build Status](https://travis-ci.org/TysonAndre/igbinary-hhvm.svg?branch=master)](https://travis-ci.org/TysonAndre/igbinary-hhvm)
 
-(Around 29 tests passing, 24 tests failing)
+(Around 41 tests passing, 13 tests failing)
 
 Native igbinary for HHVM. Not working yet.
 
