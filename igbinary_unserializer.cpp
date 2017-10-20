@@ -60,6 +60,8 @@ struct igbinary_unserialize_data {
 	req::vector<String> strings;	/**< Unserialized strings. */
 	req::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
 	req::vector<Object> wakeup;    /* objects for which to call __wakeup after unserialization is finished */
+
+    Array m_overwrittenList;  /* Reference counted values that were overwritten. See base/variable-unserializer.cpp */
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
@@ -328,8 +330,9 @@ inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *i
 	}
 
 	if (UNLIKELY(isRefcountedType(t->getRawType()))) {
-		throw IgbinaryWarning("igbinary_unserialize_object_prop: TODO handle duplicate keys or overriding existing data");
-			//uns->putInOverwrittenList(*t);
+        igsd->m_overwrittenList.append(*t);
+		// throw IgbinaryWarning("igbinary_unserialize_object_prop: TODO handle duplicate keys or overriding existing data");
+		//uns->putInOverwrittenList(*t);
 	}
 
 	igbinary_unserialize_variant(igsd, *t, WANT_CLEAR);
