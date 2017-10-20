@@ -77,7 +77,7 @@ inline static int igbinary_serialize_data_init(struct igbinary_serialize_data *i
 		igsd->references_id = 0;
 	}
 
-	igsd->compact_strings = true; /* FIXME allow ini options parsing */
+	igsd->compact_strings = igbinary_should_compact_strings(); /* FIXME allow ini options parsing */
 
 	return r;
 }

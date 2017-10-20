@@ -80,6 +80,7 @@ enum igbinary_type {
 
 	/* 25 */ igbinary_type_ref,				/**< Simple reference */
 };
+/* }}} */
 
 class IgbinaryWarning : public Exception {
   public:
@@ -91,6 +92,8 @@ void throw_igbinary_exception(const char* fmt, ...) ATTRIBUTE_PRINTF(1,2);
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& result);
 /** Unserialize the data, or clean up and throw an Exception. Effectively constant, unless __sleep modifies something. */
 Variant igbinary_serialize(const Variant& variant);
+
+bool igbinary_should_compact_strings();
 }
 
 #endif

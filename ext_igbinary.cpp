@@ -9,10 +9,12 @@
 */
 
 /* Same as equivalent php version? */
-#define IGBINARY_HHVM_VERSION "1.2.1-dev"
+#define IGBINARY_HHVM_VERSION "1.2.5-dev"
+
+#include "ext_igbinary.hpp"
 
 #include "hphp/runtime/ext/extension.h"
-#include "ext_igbinary.hpp"
+#include "hphp/runtime/ext/extension-registry.h"
 
 namespace HPHP {
 
@@ -34,6 +36,19 @@ Variant HHVM_FUNCTION(igbinary_unserialize, const String &serialized) {
 	}
 }
 
+struct Igbinary {
+  public:
+    bool compact_strings{true};
+};
+
+const StaticString s_igbinary_ext_name("igbinary");
+
+IMPLEMENT_THREAD_LOCAL_NO_CHECK(Igbinary, s_igbinary);
+
+bool igbinary_should_compact_strings() {
+  return s_igbinary->compact_strings;
+}
+
 static class IgbinaryExtension : public Extension {
   public:
 	IgbinaryExtension() : Extension("igbinary", IGBINARY_HHVM_VERSION) {}
@@ -42,6 +57,20 @@ static class IgbinaryExtension : public Extension {
 		HHVM_FE(igbinary_unserialize);
 
 		loadSystemlib();
+	}
+
+	void threadInit() override {
+		assert(s_igbinary.isNull());
+		s_igbinary.getCheck();
+		Extension* ext = ExtensionRegistry::get(s_igbinary_ext_name);
+		assert(ext);
+		IniSetting::Bind(ext, IniSetting::PHP_INI_ALL,
+		                 "igbinary.compact_strings", "1",
+		                 &s_igbinary->compact_strings);
+	}
+
+	void threadShutdown() override {
+		s_igbinary.destroy();
 	}
 } s_igbinary_extension;
 
