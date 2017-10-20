@@ -1,13 +1,13 @@
 igbinary-hhvm
 ============
 
-Requirements: HHVM >= 3.22
+Requirements: HHVM >= 3.22 (May support earlier versions in future commits)
 
 [![Build Status](https://travis-ci.org/TysonAndre/igbinary-hhvm.svg?branch=master)](https://travis-ci.org/TysonAndre/igbinary-hhvm)
 
-(Around 41 tests passing, 13 tests failing)
+(Around 52 tests passing, 7 tests failing)
 
-Native igbinary for HHVM. Not working yet.
+Native igbinary for HHVM. Mostly working, with some edge cases
 
 # Functionality
 
@@ -15,24 +15,28 @@ So far, the following work:
 
 - Scalars(Strings, Booleans, numbers)
 - Arrays of scalars
+- Objects
+- Arrays/Objects containing duplicate values
+- Integration with libraries using igbinary
+- Objects with magic methods (`serialize`,`unserialize`,`__sleep`,`__wakeup`)
 
 The following need more work:
 
-- Objects
-- Arrays/Objects containing duplicate values
-- Cyclic data structures
-- References are still unsupported
-- Objects with magic methods (`serialize`,`unserialize`,`__sleep`,`__wakeup`)
-- Integration with libraries using igbinary
+- Cyclic data structures (May just be how `var_dump` represents it, need to investigate)
+- Objects with magic methods (`__wakeup`, `__destruct`)
+- References are still unsupported.
+  Haven't decided when/if igbinary should throw, convert to a regular value, etc.
 
-External integration, such as with APCu, Memcached, Redis, etc. won't work.
+
+External integration, such as with APCu, Memcached, Redis, session serializers, etc. won't work.
 (without their sources being patched)
-References may take a while to do properly.
 
 # Incompatibilities
 
-References to PHP objects (i.e. `is_object`) are now intended to be treated as non-references to objects when serializing,
+References to PHP objects (as in `is_object`) are now intended to be treated as non-references to objects when serializing,
 to match what the HHVM serializer does in php compatibility mode.
+
+TODO: Check what the current compatibility mode is.
 
 # Installation
 
