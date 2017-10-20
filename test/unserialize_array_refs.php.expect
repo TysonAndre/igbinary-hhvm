@@ -1,0 +1,4 @@
+Type = array
+Count = 2
+Value = [["a","b","c"],["a","b","c"]]
+Same = true
