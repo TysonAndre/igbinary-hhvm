@@ -12,19 +12,19 @@ object(stdClass)#%d (5) {
 }
 string(5) "unset"
 object(stdClass)#%d (5) {
-  ["0"]=>
+  [0]=>
   int(1)
-  ["1"]=>
+  [1]=>
   int(2)
-  ["2"]=>
+  [2]=>
   int(3)
-  ["-1"]=>
+  [-1]=>
   string(1) "x"
-  ["1234"]=>
+  [1234]=>
   int(33)
 }
-int(2)
-int(2)
-int(33)
-int(33)
-string(1) "x"
+string(9) "unset str"
+string(9) "unset int"
+string(14) "unset str 1234"
+string(14) "unset int 1234"
+string(12) "unset int -1"

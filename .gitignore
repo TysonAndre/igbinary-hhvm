@@ -4,3 +4,7 @@ core*
 .*.swp
 CMakeFiles/
 *.so
+CMakeCache.txt
+test/*.php.out
+test/*.php.diff
+test/*.phpt

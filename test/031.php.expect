@@ -8,3 +8,4 @@ call serialize, no throw
 call unserialize, no throw
 call unserialize, throw
 exception in unserialize 6
+Done

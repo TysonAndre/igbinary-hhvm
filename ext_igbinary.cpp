@@ -24,21 +24,21 @@ Variant HHVM_FUNCTION(igbinary_serialize, const Variant &var) {
 
 Variant HHVM_FUNCTION(igbinary_unserialize, const String &serialized) {
 	if (serialized.size() <= 0) {
-		return false;
+		return init_null();
 	}
 	Variant result;
-	try {
+	// try {
 		igbinary_unserialize(reinterpret_cast<const uint8_t*>(serialized.data()), serialized.size(), result);
 		return result;
-	} catch (Exception &e) {
-		raise_warning(e.getMessage());
-		return false;
-	}
+	// } catch (Exception &e) {
+	// 	raise_warning(e.getMessage());
+	// 	return init_null();
+	// }
 }
 
 struct Igbinary {
   public:
-    bool compact_strings{true};
+	bool compact_strings{true};
 };
 
 const StaticString s_igbinary_ext_name("igbinary");
@@ -46,7 +46,7 @@ const StaticString s_igbinary_ext_name("igbinary");
 IMPLEMENT_THREAD_LOCAL_NO_CHECK(Igbinary, s_igbinary);
 
 bool igbinary_should_compact_strings() {
-  return s_igbinary->compact_strings;
+	return s_igbinary->compact_strings;
 }
 
 static class IgbinaryExtension : public Extension {

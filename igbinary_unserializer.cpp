@@ -61,7 +61,7 @@ struct igbinary_unserialize_data {
 	req::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
 	req::vector<Object> wakeup;    /* objects for which to call __wakeup after unserialization is finished */
 
-    Array m_overwrittenList;  /* Reference counted values that were overwritten. See base/variable-unserializer.cpp */
+	Array m_overwrittenList;  /* Reference counted values that were overwritten. See base/variable-unserializer.cpp */
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
@@ -156,13 +156,41 @@ inline static uint64_t igbinary_unserialize64(igbinary_unserialize_data *igsd) {
 }
 /* }}} */
 
+/* {{{ igbinary_unserialize_header_throw_for_version */
+/* Precondition: igsd->buffer_size >= 4 */
+inline static void igbinary_unserialize_header_throw_for_version(struct igbinary_unserialize_data *igsd, int version) {
+	int i;
+	char buf[9], *it;
+	for (i = 0; i < 4; i++) {
+		if (!isprint((int)igsd->buffer[i])) {
+			if (version != 0 && (((unsigned int)version) & 0xff000000) == (unsigned int)version) {
+				// Check if high order byte was set instead of low order byte
+				throw IgbinaryWarning("igbinary_unserialize_header: unsupported version: %u, should be %u or %u (wrong endianness?)", (unsigned int) version, 0x00000001, (unsigned int) IGBINARY_FORMAT_VERSION);
+			}
+			// Binary data, or a version number from a future release.
+			throw IgbinaryWarning("igbinary_unserialize_header: unsupported version: %u, should be %u or %u", (int) version, 0x00000001, (int) IGBINARY_FORMAT_VERSION);
+		}
+	}
+
+	for (it = buf, i = 0; i < 4; i++) {
+		char c = igsd->buffer[i];
+		if (c == '"' || c == '\\') {
+			*it++ = '\\';
+		}
+		*it++ = c;
+	}
+	*it = '\0';
+	throw IgbinaryWarning("igbinary_unserialize_header: unsupported version: \"%s\"..., should begin with a binary version header of \"\\x00\\x00\\x00\\x01\" or \"\\x00\\x00\\x00\\x%02x\"", buf, (int)IGBINARY_FORMAT_VERSION);
+}
+/* }}} */
+
 /* {{{ igbinary_unserialize_header */
 /** Unserialize header. Check for version. */
 inline static void igbinary_unserialize_header(struct igbinary_unserialize_data *igsd) {
 	uint32_t version;
 
-	if (igsd->buffer_offset + 4 >= igsd->buffer_size) {
-		throw IgbinaryWarning("igbinary_unserialize_data: unexpected end of buffer reading version %d > %d", (int) igsd->buffer_offset, (int) igsd->buffer_size);
+	if (igsd->buffer_offset + 5 > igsd->buffer_size) {
+		throw IgbinaryWarning("igbinary_unserialize_header: expected at least 5 bytes of data, got %u byte(s)", (int)(igsd->buffer_size - igsd->buffer_offset));
 	}
 
 	version = igbinary_unserialize32(igsd);
@@ -171,7 +199,7 @@ inline static void igbinary_unserialize_header(struct igbinary_unserialize_data 
 	if (version == IGBINARY_FORMAT_VERSION || version == 0x00000001) {
 		return;
 	} else {
-		throw IgbinaryWarning("igbinary_unserialize_header: unsupported version: %d, should be %d or %u", (int) version, 0x00000001, (int) IGBINARY_FORMAT_VERSION);
+		igbinary_unserialize_header_throw_for_version(igsd, version);
 	}
 }
 /* }}} */
@@ -330,7 +358,7 @@ inline static void igbinary_unserialize_object_prop(igbinary_unserialize_data *i
 	}
 
 	if (UNLIKELY(isRefcountedType(t->getRawType()))) {
-        igsd->m_overwrittenList.append(*t);
+		igsd->m_overwrittenList.append(*t);
 		// throw IgbinaryWarning("igbinary_unserialize_object_prop: TODO handle duplicate keys or overriding existing data");
 		//uns->putInOverwrittenList(*t);
 	}
@@ -424,9 +452,9 @@ inline static void igbinary_unserialize_object_new_contents(struct igbinary_unse
 }
 /* }}} */
 inline static void igbinary_unserialize_object_ser(struct igbinary_unserialize_data *igsd, enum igbinary_type t, Object& obj) {
-    if (!obj->instanceof(SystemLib::s_SerializableClass)) {
-        raise_error("igbinary_unserialize: Class %s has no unserializer",
-                      obj->getClassName().data());
+	if (!obj->instanceof(SystemLib::s_SerializableClass)) {
+		raise_error("igbinary_unserialize: Class %s has no unserializer",
+		              obj->getClassName().data());
 		return;
 	}
 	size_t n;
@@ -453,7 +481,9 @@ inline static void igbinary_unserialize_object_ser(struct igbinary_unserialize_d
 		throw IgbinaryWarning("igbinary_unserialize_object_ser: end-of-data");
 	}
 
-	obj->o_invoke_few_args(s_unserialize, 1, String(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), n, CopyString));
+	String serialized = String::attach(makeStaticString(reinterpret_cast<const char*>(igsd->buffer + igsd->buffer_offset), n));
+	obj->o_invoke_few_args(s_unserialize, 1, serialized);
+	igsd->buffer_offset += n;
 	obj.get()->clearNoDestruct();  // Allow destructor to be called (???)
 }
 
@@ -810,12 +840,11 @@ namespace HPHP {
 void igbinary_unserialize(const uint8_t *buf, size_t buf_len, Variant& v) {
 	igbinary_unserialize_data igsd(buf, buf_len);  // initialized by constructor, freed by destructor
 	try {
-
 		igbinary_unserialize_header(&igsd);  // Unserialize header or throw exception.
 		igbinary_unserialize_variant(&igsd, v, WANT_CLEAR);
 		/* FIXME finish_wakeup */
 	} catch (IgbinaryWarning &e) {
-		v = false;
+		v.setNull();
 		raise_warning(e.getMessage());
 		return;
 	}

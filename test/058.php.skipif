@@ -1,0 +1,2 @@
+<?php
+echo "skip HHVM will call __destruct() even if __wakeup() threw\n";
