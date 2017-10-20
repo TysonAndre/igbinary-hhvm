@@ -2,22 +2,16 @@
 
 # travis.yml based on https://github.com/reeze/msgpack-hhvm/blob/master/.travis.yml
 
-language: php
 sudo: required
 dist: trusty
 group: edge 
 
-php:
-  - hhvm-3.22
-
-install:
-  - sudo apt-get install cmake hhvm-dev
-  - hhvm --version
+# We run docker instead of 'php' because Ubuntu Trusty is too old for hhvm 3.22.1
+services:
+  - docker
 
 script:
-  - hphpize
-  - cmake .
-  - make && make test
+  - ci/main.sh
 
 branches:
   only:
