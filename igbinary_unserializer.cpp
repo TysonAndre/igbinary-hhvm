@@ -17,33 +17,17 @@
 // For HHVM_VERSION_*
 #include "hphp/runtime/version.h"
 
-#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 7)
-#define IGBINARY_OLD_COLLECTIONS_API
-#endif
-
-#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 8)
-#define IGBINARY_OLD_CONTAINERS_API
+#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR < 22)
+#error Unsupported HHVM version
 #endif
 
 #include "hphp/runtime/base/array-init.h"
 // for ::HPHP::collections::isType
-#ifdef IGBINARY_OLD_COLLECTIONS_API
-# if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 6)
-#  include "hphp/runtime/ext/ext_collections.h"
-# else
-#  include "hphp/runtime/base/header-kind.h"
-# endif
-#else
-# include "hphp/runtime/base/collections.h"
-#endif
+#include "hphp/runtime/base/collections.h"
 #include "hphp/runtime/base/execution-context.h"
 // for req::vector
 
-#ifdef IGBINARY_OLD_CONTAINERS_API
-# include "hphp/runtime/base/smart-containers.h"
-#else
-# include "hphp/runtime/base/req-containers.h"
-#endif
+#include "hphp/runtime/base/req-containers.h"
 #include "hphp/runtime/base/type-variant.h"
 
 
@@ -73,15 +57,9 @@ struct igbinary_unserialize_data {
 	size_t buffer_offset;			/**< Current read offset. */
 
 	// Containers using thread-local memory.
-#ifdef IGBINARY_OLD_CONTAINERS_API
-# define req smart
-#endif
 	req::vector<String> strings;	/**< Unserialized strings. */
 	req::vector<Variant*> references;  /**< non-refcounted pointers to objects, arrays, and references being deserialized */
 	req::vector<Object> wakeup;    /* objects for which to call __wakeup after unserialization is finished */
-#ifdef IGBINARY_OLD_CONTAINERS_API
-# undef req
-#endif
   public:
 	igbinary_unserialize_data(const uint8_t* buf, size_t buf_size);
 	~igbinary_unserialize_data();
@@ -505,11 +483,7 @@ inline static void igbinary_unserialize_object(struct igbinary_unserialize_data 
 			throw IgbinaryWarning("igbinary_unserialize_object: Unable to completely unserialize internal cpp class");
 		} else {
 			if (UNLIKELY(
-#ifdef IGBINARY_OLD_COLLECTIONS_API
-				(cls == c_Pair::classof)
-#else
 				collections::isType(cls, CollectionType::Pair)
-#endif
 					)) {  // && (size != 2))) {
 				throw IgbinaryWarning("igbinary_unserialize_object: HPHP type Pair unsupported, incompatible with php5/php7 implementation");
 			}
@@ -713,11 +687,12 @@ static void igbinary_unserialize_ref(igbinary_unserialize_data *igsd, enum igbin
 			v.asRef();
 			data = &v;
 		} else {
-			v.assignRefHelper(*data);
+			v.assignRef(*data);
 		}
 	} else {
 		// Copy underlying data of ref or non-ref. Deletes old data?
-		v.constructValHelper(*data);
+		// v.constructValHelper(*data);
+		cellDup(tvToInitCell(data->asTypedValue()), *v.asTypedValue());
 	}
 
 

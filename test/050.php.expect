@@ -1,6 +1,6 @@
-O:8:"stdClass":1:{s:6:"cyclic";O:8:"stdClass":2:{s:3:"foo";R:2;s:3:"bar";R:2;}}
+O:8:"stdClass":1:{s:6:"cyclic";O:8:"stdClass":2:{s:3:"foo";r:2;s:3:"bar";r:2;}}
 000000021708737464436c617373140111066379636c6963251a0014021103666f6f2522011103626172252201
-O:8:"stdClass":1:{s:6:"cyclic";O:8:"stdClass":2:{s:3:"foo";R:2;s:3:"bar";R:2;}}
+O:8:"stdClass":1:{s:6:"cyclic";O:8:"stdClass":2:{s:3:"foo";r:2;s:3:"bar";r:2;}}
 object(stdClass)#3 (1) {
   ["cyclic"]=>
   &object(stdClass)#4 (2) {

@@ -1,6 +1,8 @@
 igbinary-hhvm
 ============
 
+Requirements: HHVM >= 3.22
+
 [![Build Status](https://travis-ci.org/TysonAndre/igbinary-hhvm.svg?branch=master)](https://travis-ci.org/TysonAndre/igbinary-hhvm)
 
 (Around 29 tests passing, 24 tests failing)
@@ -23,8 +25,14 @@ The following need more work:
 - Objects with magic methods (`serialize`,`unserialize`,`__sleep`,`__wakeup`)
 - Integration with libraries using igbinary
 
-External integration, such as with APC, Memcached, Redis, etc. won't work.
+External integration, such as with APCu, Memcached, Redis, etc. won't work.
+(without their sources being patched)
 References may take a while to do properly.
+
+# Incompatibilities
+
+References to PHP objects (i.e. `is_object`) are now intended to be treated as non-references to objects when serializing,
+to match what the HHVM serializer does in php compatibility mode.
 
 # Installation
 

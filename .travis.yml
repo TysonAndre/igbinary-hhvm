@@ -7,11 +7,8 @@ sudo: required
 dist: trusty
 group: edge 
 
-# - hhvm-3.3 (No version.h, HHVM_VERSION_ID is in a json file)
 php:
-  - hhvm-3.6
-  - hhvm-3.9
-  - hhvm-3.12
+  - hhvm-3.22
 
 install:
   - sudo apt-get install cmake hhvm-dev

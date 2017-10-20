@@ -16,21 +16,14 @@
 #include "hphp/runtime/version.h"
 
 
-#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR <= 10)
-#define IGBINARY_OLD_OBJECT_PROPERTIES_API
+// TODO: Pin down exact version?
+#if HHVM_VERSION_MAJOR < 3 || (HHVM_VERSION_MAJOR == 3 && HHVM_VERSION_MINOR < 22)
+#error Unsupported HHVM version
 #endif
 
 #include "hphp/runtime/base/string-buffer.h"
 #include "hphp/runtime/base/type-string.h"
-
-#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
-// Workaround to call ObjectData->propVec(). Should not be necessary for other methods.
-#define protected public
-#endif
 #include "hphp/runtime/base/type-object.h"
-#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
-#undef protected
-#endif
 
 // Includes type-object.h through type-variant.h, so these headers are placed below that block.
 #include "ext_igbinary.hpp"
@@ -528,11 +521,7 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 				if (lookup.accessible) {
 					auto const prop = &obj->propVec()[propIdx];
 					if (prop->m_type != KindOfUninit) {
-#ifdef IGBINARY_OLD_OBJECT_PROPERTIES_API
-						auto const attrs = obj_cls->declProperties()[propIdx].m_attrs;
-#else
 						auto const attrs = obj_cls->declProperties()[propIdx].attrs;
-#endif
 						if (attrs & AttrPrivate) {
 							memberName = concat4(s_zero, ctx->nameStr(),
 									s_zero, memberName);
@@ -546,10 +535,11 @@ inline static void igbinary_serialize_object(struct igbinary_serialize_data *igs
 				}
 			}
 			if (UNLIKELY(obj->getAttribute(ObjectData::HasDynPropArr))) {
-				const TypedValue* prop = obj->dynPropArray()->nvGet(memberName.get());
+				// TODO: look in depth at e513c6d6d4a847fd7d09e27f23e4554b6955c0f0
+				HPHP::member_rval prop = obj->dynPropArray()->rval(memberName.get());
 				if (prop) {
-					igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys?
-					igbinary_serialize_variant(igsd, tvAsCVarRef(prop));
+					igbinary_serialize_string(igsd, memberName.get());  // TODO: Integer keys? Can probably ignore.
+					igbinary_serialize_variant(igsd, tvAsCVarRef(prop.tv_ptr()));
 					continue;
 				}
 			}
@@ -668,17 +658,13 @@ inline static void igbinary_serialize_variant(struct igbinary_serialize_data *ig
 			igbinary_serialize_double(igsd, tv->m_data.dbl);
 			return;
 		case KindOfString:
-#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 12)
 		case KindOfPersistentString:
-#endif
 			igbinary_serialize_string(igsd, tv->m_data.pstr);
 			return;
 		case KindOfObject:
 			igbinary_serialize_object(igsd, tv->m_data.pobj);
 			return;
-#if HHVM_VERSION_MAJOR > 3 || (HHVM_VERSION_MAJOR >= 3 && HHVM_VERSION_MINOR >= 11)
 		case KindOfPersistentArray:
-#endif
 		case KindOfArray:
 			igbinary_serialize_array(igsd, self, false);
 			return;
