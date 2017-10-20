@@ -1,0 +1,17 @@
+Calling __wakeup a
+Caught __wakeup threw
+Calling __destruct a dynamic=original
+Done a
+Calling __wakeup b
+Unserialized b
+object(Thrower)#2 (3) {
+  ["id"]=>
+  string(1) "b"
+  ["throws"]=>
+  bool(false)
+  ["dynamic"]=>
+  string(4) "copy"
+}
+Calling __destruct b dynamic=copy
+Calling __destruct b dynamic=original
+Done b
