@@ -3,3 +3,4 @@ tags
 core*
 .*.swp
 CMakeFiles/
+*.so
